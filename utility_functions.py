@@ -22,15 +22,19 @@ import requests
 
 #Given an input extent and a comparison list of datasets, return a new list with only those datasets that intersect
 #extent polygon (overlp, touch, or within)
-def get_inters_tiles(ref_extent, tileiterator):
+def get_inters_tiles(ref_extent, tileiterator, containsonly=False):
     outlist = []
 
     # If tile iterator is a list of paths
     if isinstance(tileiterator, list) or isinstance(tileiterator, set):
         for i in tileiterator:
             tileext = arcpy.Describe(i).extent
-            if tileext.overlaps(ref_extent) or tileext.touches(ref_extent) \
-                    or tileext.within(ref_extent) or v.contains(ref_extent):
+
+            if containsonly==True and tileext.contains(ref_extent):
+                outlist.append(i)
+
+            elif tileext.overlaps(ref_extent) or tileext.touches(ref_extent) \
+                    or tileext.within(ref_extent) or tileext.contains(ref_extent):
                 outlist.append(i)
 
     #if tile iterator is a dictionary of extents, append key
@@ -38,7 +42,10 @@ def get_inters_tiles(ref_extent, tileiterator):
         for k, v in tileiterator.iteritems():
             # print(k)
             # print(v)
-            if v.overlaps(ref_extent) or v.touches(ref_extent) \
+            if containsonly==True and v.contains(ref_extent):
+                outlist.append(k)
+
+            elif v.overlaps(ref_extent) or v.touches(ref_extent) \
                     or v.within(ref_extent) or v.contains(ref_extent):
                 outlist.append(k)
 
