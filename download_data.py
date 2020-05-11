@@ -268,7 +268,7 @@ for x1 in xtileset1:
                 alos_outtile = os.path.join(alos_outdir, '{0}{1}.zip'.format(y2, x2))
                 print(alos_tileurl)
                 try:
-                    if not os.path.exists(alos_outtile) or os.path.exists(os.path.splitext(alos_outtile)[0]):
+                    if not (os.path.exists(alos_outtile) or os.path.exists(os.path.splitext(alos_outtile)[0])):
                         dlfile(url=alos_tileurl, outpath=alos_outdir, outfile=os.path.split(alos_outtile)[1],
                                fieldnames=None,
                                ignore_downloadable=False,
