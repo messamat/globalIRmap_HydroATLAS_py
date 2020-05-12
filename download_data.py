@@ -277,39 +277,33 @@ alos_map = urllib2.urlopen("https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/index.h
 alos_soup = BeautifulSoup(alos_map, features="xml")
 
 ######################################################################################################################################################################################
-service_args = [
-    '--proxy=https://IP:PORT',
-    '--proxy-type=http',
-    '--proxy-auth={0}:{1}'.format(authdat['alos']['username'],authdat['alos']['password']),
-    ]
-br = webdriver.PhantomJS(PATH,service_args=service_args)
-br.get('https://www.google.com/')
-
-from selenium import webdriver
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-import base64
-
-service_args = [
-    '--proxy-type=http',
-]
-
-authentication_token = "Basic " + base64.b64encode(b'{0}:{1}'.format(authdat['alos']['username'],authdat['alos']['password']))
-
-capa = DesiredCapabilities.PHANTOMJS
-capa['phantomjs.page.customHeaders.Proxy-Authorization'] = authentication_token
-driver = webdriver.PhantomJS(executable_path=os.path.join(rootdir, 'bin', 'phantomjs-2.1.1-windows', 'bin', 'phantomjs.exe'), #download and install phantomjs
-                             desired_capabilities=capa, service_args=service_args)
-
 driver.get("https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/html_v2003/s090w060_s070w030.htm")
-latcheck = driver.find_elements_by_class_name("go_dl")
 
+#Create python code out of the javascript that ALOS dem website uses to fetch tiles for download
+#Download JS
+alosjs = dlfile(url='https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/html_v2003/js/go_5-5_v2003.js',
+                 outpath=alos_outdir, ignore_downloadable=True,
+                 loginprompter="https://www.eorc.jaxa.jp",
+                 username=authdat['alos']['username'], password=authdat['alos']['password']
+                 )
 
-driver.find_element_by_xpath('//input[@type="img"][@src="./thumbnail_v2003/S085W060/MOS_S085W060_S080W055_s.jpg"]')
+##Translate JS to python
+import js2py
+alospyout = '{}.py'.format(os.path.split(os.path.splitext(alosjs)[0])[1])
+js2py.translate_file(alosjs, alospyout)
 
-driver.execute_script("comp_anterctica('S085W060','S080W055',-85,-60)")
+#Correct glitch in script and change name
+realospy =  re.sub("go_5[-]5_v2003", "go_5_5_v2003", open(alospyout, "r").read())
+with open(alospyout, "w") as local_file:
+    for line in realospy:
+        # write line to output file
+        local_file.write(line)
+if os.path.exists("go_5-5_v2003.py"):
+    os.rename("go_5-5_v2003.py","go_5_5_v2003.py")
+alospyout = "go_5_5_v2003.py"
 
-p_element = driver.find_element_by_partial_link_text(id_='intro-text')
-print(p_element.text)
+alosmod.PyJsHoisted_comp_anterctica_('S080W060','S075W055',-80,-60)
+
 ######################################################################################################################################################################################
 alos_bigtiles = []
 for link in alos_soup.findAll('area', attrs={'title': re.compile("[NS][0-9]{3}[WE][0-9]{3}_[NS][0-9]{3}[WE][0-9]{3}")}):
