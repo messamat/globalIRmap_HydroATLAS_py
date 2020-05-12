@@ -17,6 +17,7 @@ import math
 import numpy as np
 from collections import defaultdict
 import tarfile
+import lxml
 from functools import reduce
 
 #pip install pyproj==1.9.6 owslib==0.18 - 0.19 dropped python 2.7
@@ -129,6 +130,15 @@ for lyrurl in [urlparse.urljoin(mod44w_https, link.get('href')) for link in
                loginprompter="https://urs.earthdata.nasa.gov",
                username=authdat['earthdata']['username'], password=authdat['earthdata']['password'])
 
+#Convert HDF tiles to TIF and project them using
+
+#------------------------------- Download HydroLAKES -------------------------------------------------------------------
+hydrolakesdir = os.path.join(datdir, "hydrolakes")
+pathcheckcreate(hydrolakesdir)
+dlfile(url="https://97dc600d3ccc765f840c-d5a4231de41cd7a15e06ac00b0bcc552.ssl.cf5.rackcdn.com/HydroLAKES_polys_v10.gdb.zip",
+       outpath=hydrolakesdir,
+       ignore_downloadable=True)
+
 #------------------------------- Download GLIMS ------------------------------------------------------------------------
 # Create output directory
 glims_outdir = os.path.join(datdir, 'glims')
@@ -240,6 +250,112 @@ def parse_alosurl(alosurl):
                      ['https://www.eorc.jaxa.jp/ALOS/aw3d30/data/release_v2003/',
                       '{}/'.format(urlsub[0:8]),
                       '{}.zip'.format(urlsub[9:9 + 8])])
+    return(downurl)
+
+#Get list of tiles
+# Create a password manager to deal with the 401 reponse that is returned from Earthdata Login
+password_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
+password_manager.add_password(None,
+                              "https://www.eorc.jaxa.jp",
+                              authdat['alos']['username'],
+                              authdat['alos']['password'])
+
+# Create a cookie jar for storing cookies. This is used to store and return the session cookie given to use by
+# the data server (otherwise it will just keep sending us back to Earthdata Login to authenticate).
+# Ideally, we should use a file based cookie jar to preserve cookies between runs. This will make it much more efficient.
+cookie_jar = CookieJar()
+
+# Install all the handlers.
+opener = urllib2.build_opener(
+    urllib2.HTTPBasicAuthHandler(password_manager),
+    # urllib2.HTTPHandler(debuglevel=1),    # Uncomment these two lines to see
+    # urllib2.HTTPSHandler(debuglevel=1),   # details of the requests/responses
+    urllib2.HTTPCookieProcessor(cookie_jar))
+urllib2.install_opener(opener)
+
+alos_map = urllib2.urlopen("https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/index.htm")
+alos_soup = BeautifulSoup(alos_map, features="xml")
+
+######################################################################################################################################################################################
+service_args = [
+    '--proxy=https://IP:PORT',
+    '--proxy-type=http',
+    '--proxy-auth={0}:{1}'.format(authdat['alos']['username'],authdat['alos']['password']),
+    ]
+br = webdriver.PhantomJS(PATH,service_args=service_args)
+br.get('https://www.google.com/')
+
+from selenium import webdriver
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+import base64
+
+service_args = [
+    '--proxy-type=http',
+]
+
+authentication_token = "Basic " + base64.b64encode(b'{0}:{1}'.format(authdat['alos']['username'],authdat['alos']['password']))
+
+capa = DesiredCapabilities.PHANTOMJS
+capa['phantomjs.page.customHeaders.Proxy-Authorization'] = authentication_token
+driver = webdriver.PhantomJS(executable_path=os.path.join(rootdir, 'bin', 'phantomjs-2.1.1-windows', 'bin', 'phantomjs.exe'), #download and install phantomjs
+                             desired_capabilities=capa, service_args=service_args)
+
+driver.get("https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/html_v2003/s090w060_s070w030.htm")
+latcheck = driver.find_elements_by_class_name("go_dl")
+
+
+driver.find_element_by_xpath('//input[@type="img"][@src="./thumbnail_v2003/S085W060/MOS_S085W060_S080W055_s.jpg"]')
+
+driver.execute_script("comp_anterctica('S085W060','S080W055',-85,-60)")
+
+p_element = driver.find_element_by_partial_link_text(id_='intro-text')
+print(p_element.text)
+######################################################################################################################################################################################
+alos_bigtiles = []
+for link in alos_soup.findAll('area', attrs={'title': re.compile("[NS][0-9]{3}[WE][0-9]{3}_[NS][0-9]{3}[WE][0-9]{3}")}):
+    bigtile = urlparse.urljoin("https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/", link.get('href'))
+    print(bigtile)
+    bigtile_soup = BeautifulSoup(urllib2.urlopen(bigtile).read(), features="html.parser")
+
+    print(bigtile_soup)
+
+    #Check for high latitue tiles
+    for link2 in bigtile_soup.findAll('img', attrs={'onclick': re.compile("comp_anterctica.*")}):
+        mediumids = re.sub("[']",
+                           "",
+                           re.search("(?<=comp_anterctica[(]['])[NS][0-9]{3}[WE][0-9]{3}"
+                                     "['][,][']"
+                                     "[NS][0-9]{3}[WE][0-9]{3}",
+                                     link2.get('onclick')).group()
+                           ).split(",")
+        print(mediumids)
+        mediumtile = "https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/html_v2003/{0}_{1}.htm".format(
+            mediumids[0].lower(), mediumids[1].lower())
+
+
+
+
+
+        smalltile = "https://www.eorc.jaxa.jp/ALOS/en/aw3d30/data/html_v2003/dl/" \
+                    "download_v2003_anterctica.htm?{0}_{1}.htm".format(mediumids[0], mediumids[1])
+
+        ############################
+        parse_alosurl(smalltile)
+
+        urllib2.urlopen(smalltile)
+
+        bigtile_soup = BeautifulSoup(urllib2.urlopen(smalltile), features="html.parser")
+
+        parse_alosurl(smalltile)
+
+
+
+
+
+
+
+
+
 
 #Generate server-based list of urls
 ytileset1 = {'N{}'.format(str(x).zfill(3)) for x in xrange(0, 95, 5)} | \
@@ -247,6 +363,7 @@ ytileset1 = {'N{}'.format(str(x).zfill(3)) for x in xrange(0, 95, 5)} | \
 xtileset1 = {'W{}'.format(str(x).zfill(3)) for x in xrange(0, 185, 5)} | \
             {'E{}'.format(str(x).zfill(3)) for x in xrange(0, 185, 5)}
 
+alos_notdownloadable = []
 for x1 in xtileset1:
     for y1 in ytileset1:
         if x1[0] == 'W':
@@ -268,17 +385,26 @@ for x1 in xtileset1:
                 alos_outtile = os.path.join(alos_outdir, '{0}{1}.zip'.format(y2, x2))
                 print(alos_tileurl)
                 try:
-                    if not (os.path.exists(alos_outtile) or os.path.exists(os.path.splitext(alos_outtile)[0])):
+                    if not (os.path.exists(alos_outtile) or
+                            os.path.exists(os.path.splitext(alos_outtile)[0]) or
+                            alos_tileurl in alos_notdownloadable):
                         dlfile(url=alos_tileurl, outpath=alos_outdir, outfile=os.path.split(alos_outtile)[1],
                                fieldnames=None,
                                ignore_downloadable=False,
                                loginprompter="https://www.eorc.jaxa.jp",
                                username=authdat['alos']['username'], password=authdat['alos']['password'])
+
+                        if not os.path.exists(alos_outtile):
+                            alos_notdownloadable.append(alos_tileurl)
                     else:
                         print('{} was already processed...'.format(alos_outtile))
                 except:
                     traceback.print_exc()
 
+#cPickle alos_notdownloadable
+
+
+
 
 
 
@@ -297,6 +423,33 @@ for x1 in xtileset1:
 
 ########################################################################################################################
 ########################################################################################################################
+
+
+for x1 in xtileset1:
+    for y1 in ytileset1:
+        if x1[0] == 'W':
+            xtileset2 = {'{0}{1}'.format(x1[0], str(i).zfill(3)) for i in xrange(int(x1[1:]) - 5, int(x1[1:]))}
+        else:
+            xtileset2 = {'{0}{1}'.format(x1[0], str(i).zfill(3)) for i in xrange(int(x1[1:]), int(x1[1:])+5)}
+
+        if y1[0] == 'S':
+            ytileset2 = {'{0}{1}'.format(y1[0], str(i).zfill(3)) for i in xrange(int(y1[1:])-5, int(y1[1:]))}
+        else:
+            ytileset2 = {'{0}{1}'.format(y1[0], str(i).zfill(3)) for i in xrange(int(y1[1:]), int(y1[1:]) + 5)}
+
+        for x2 in xtileset2:
+            for y2 in ytileset2:
+                alos_tileurl = reduce(urlparse.urljoin,
+                                      ['https://www.eorc.jaxa.jp/ALOS/aw3d30/data/release_v2003/',
+                                       '{0}{1}/'.format(y1, x1),
+                                       '{0}{1}.zip'.format(y2, x2)])
+                alos_outtile = os.path.join(alos_outdir, '{0}{1}.zip'.format(y2, x2))
+                if alos_outtile == "D:\PhD\HydroATLAS\data\ALOS\S005E015.zip":
+                    print(alos_outtile)
+
+x1 = "E015"
+y1 = "S005"
+
 
 #-----------------------------------------------------------------------------------------------------------------------
 #Extra stuff
