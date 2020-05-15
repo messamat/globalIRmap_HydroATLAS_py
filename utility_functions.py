@@ -12,6 +12,7 @@ import zipfile
 import urllib2
 from cookielib import CookieJar
 import shutil
+import random
 
 import arcpy
 from arcpy.sa import *
@@ -19,6 +20,36 @@ import numpy as np
 import pandas as pd
 import requests
 
+#Take the extent from a dataset and return the extent in the projection of choice
+def project_extent(in_dataset, out_coor_system, out_dataset=None):
+    """
+    :param in_dataset: dataset whose extent to project
+    :param out_coor_system: output coordinate system for extent (this can also be a dataset whose CS will be used)
+    :param out_dataset (optional): path to dataset that will contain projected extent as a point-based bounding box
+                                    (otherwise, output dataset is written to scratch gdb and deleted)
+    :return: extent object of in_dataset in out_coor_system projection
+    """
+    # Create multipoint geometry with extent
+    modext = arcpy.Describe(in_dataset).extent
+    modtilebbox = arcpy.Multipoint(
+        arcpy.Array([modext.lowerLeft, modext.lowerRight, modext.upperLeft, modext.upperRight]),
+        arcpy.Describe(in_dataset).spatialReference)
+
+    # Project extent
+    if not out_dataset==None:
+        outext = arcpy.Describe(
+            arcpy.Project_management(in_dataset=modtilebbox,
+                                     out_dataset=out_dataset,
+                                     out_coor_system=arcpy.Describe(out_coor_system).spatialReference)).extent
+    else:
+        out_dataset=os.path.join(arcpy.env.scratchWorkspace, 'extpoly{}'.format(random.randrange(1000)))
+        outext = arcpy.Describe(
+            arcpy.Project_management(in_dataset=modtilebbox,
+                                           out_dataset=out_dataset,
+                                           out_coor_system=arcpy.Describe(out_coor_system).spatialReference)).extent
+        arcpy.Delete_management(out_dataset)
+
+    return(outext)
 
 #Given an input extent and a comparison list of datasets, return a new list with only those datasets that intersect
 #extent polygon (overlp, touch, or within)
@@ -348,6 +379,12 @@ def dlfile(url, outpath, outfile=None, ignore_downloadable=False,
                             if isinstance(z, zipfile.ZipFile):
                                 z.extractall(os.path.split(out)[0])
 
+                    elif f.headers.get('content-type').lower() == 'application/javascript':
+                        with open(out, "w") as local_file:
+                            for line in f.read():
+                                # write line to output file
+                                local_file.write(line)
+
                 elif os.path.splitext(url)[1] == '.gz':
                     outunzip = os.path.splitext(out)[0]
                     if not os.path.exists(outunzip):
@@ -391,6 +428,7 @@ def dlfile(url, outpath, outfile=None, ignore_downloadable=False,
                 print('{} already exists...'.format(out))
         else:
             print('File not downloadable...')
+        return(out)
 
     # handle errors
     except requests.exceptions.HTTPError, e:
