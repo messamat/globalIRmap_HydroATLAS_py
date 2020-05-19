@@ -32,6 +32,7 @@ alosresgdb = os.path.join(resdir, 'alos.gdb')
 gladresgdb = os.path.join(resdir, 'glad.gdb')
 pathcheckcreate(gladresgdb)
 pathcheckcreate(alosresgdb)
+pathcheckcreate(mod44w_resgdb)
 
 #GLAD values mean the following
 #0: NoData, 1: Land, 2: Permanent water, 3: Stable seasonal, 4: Water gain, 5: Water loss
@@ -40,144 +41,17 @@ pathcheckcreate(alosresgdb)
 #Get list of tiiles for raw GLAD tiles, mod44w (MODIS sea mask) and ALOS (DEM)
 print('Getting tile lists for GLAD, MODIS, and ALOS...')
 rawtilelist = getfilelist(glad_dir, 'class99_19.*[.]tif$')
-mod44w_tilelist = getfilelist(mod44w_outdir, '.*[.]hdf$')
 alos_tilelist = getfilelist(alos_dir, 'ALPSMLC30_[NS][0-9]{3}[WE][0-9]{3}_DSM.tif$')
 alos_wgsextdict= {i: arcpy.Describe(i).extent for i in alos_tilelist}
 
+mod44w_tilelist = getfilelist(mod44w_outdir, '.*[.]hdf$')
+#Rename all MODIS files that have points with underscores
+if any([re.search('[.]', os.path.splitext(os.path.split(i)[1])[0]) for i in mod44w_tilelist]):
+    for modtile in mod44w_tilelist:
+        modtile_renamed = '{}.hdf'.format(re.sub('[.]', '_', os.path.splitext(os.path.split(modtile)[1])[0]))
+        os.rename(modtile,os.path.join(mod44w_outdir, modtile_renamed))
+
 #Define functions
-
-#---------------------------- Remove GLAD tiles with only 0 values -----------------------------------------------------
-remove0tiles = False #This takes a bit of time to run so, the first time the code is run after downloading GLAD tiles, it should be run once
-
-if remove0tiles == True:
-    print('Removing GLAD tiles with only NoData or Sparse values...')
-    for tile in rawtilelist:
-        print(tile)
-        # Get unique categorical values
-        if not Raster(tile).hasRAT and arcpy.Describe(tile).bandCount == 1:  # Build attribute table if doesn't exist
-            try:
-                arcpy.BuildRasterAttributeTable_management(tile)  # Does not work
-            except Exception:
-                e = sys.exc_info()[1]
-                print(e.args[0])
-                arcpy.DeleteRasterAttributeTable_management(tile)
-
-        gladvals = {row[0] for row in arcpy.da.SearchCursor(tile, 'Value')}
-
-        if len(gladvals) == 1:  # If only one value across entire tile
-            if list(gladvals)[0] == 0 or list(gladvals)[0] == 12:  # And that value is NoData
-                print('Tile only has NoData values, deleting...')
-                arcpy.Delete_management(tile)  # Delete tile
-        if len(gladvals) == 2:  # If only one value across entire tile
-            if 0 in gladvals & 12 in gladvals:
-                print('Tile only has NoData values, deleting...')
-                arcpy.Delete_management(tile)  # Delete tile
-
-#---------------------------- Get dictionary of MODIS tile extents -----------------------------------------------------
-#Get wgs84 extent of all mod44w tiles (because MODIS is in custom Spheroid Sinusoidal projection)
-mod44w_wgsextdict= {}
-mod44w_sr = arcpy.Describe(mod44w_tilelist[0]).spatialReference
-print('Getting dictionary of MODIS tile extents in WGS84...')
-for i in mod44w_tilelist:
-    #Get MODIS tile id
-    modtileid = re.search('(?<=MOD44W[.]A2015001[.])h[0-9]{2}v[0-9]{2}(?=[0-9.]{18}[.]hdf)',
-                          os.path.split(i)[1]).group()
-    outmodext = os.path.join(mod44w_resgdb, 'extbbox{}'.format(modtileid))
-    if not arcpy.Exists(outmodext):
-        print(i)
-        mod44w_wgsextdict[i] = project_extent(in_dataset=i, out_coor_system=rawtilelist[0], out_dataset=outmodext)
-    else:
-        #Add extent to dictionary as value with MODIS tile id as the key
-        mod44w_wgsextdict[i] = arcpy.Describe(outmodext).extent
-
-
-#---------------------------- Prep for GLAD matching to HydroSHEDS -----------------------------------------------------
-#Check aggregation ratio
-cellsize_ratio = arcpy.Describe(hydrotemplate).meanCellWidth / arcpy.Describe(rawtilelist[0]).meanCellWidth
-print('Aggregating GLAD by cell size ratio of {0} would lead to a difference in resolution of {1} mm'.format(
-    math.floor(cellsize_ratio),
-    11100000 * (arcpy.Describe(hydrotemplate).meanCellWidth - math.floor(cellsize_ratio) * arcpy.Describe(
-        rawtilelist[0]).meanCellWidth)
-))
-# Make sure that the cell size ratio is a multiple of the number of rows and columns in DEM tiles to not have edge effects
-float(arcpy.Describe(rawtilelist[0]).height) / math.floor(cellsize_ratio)
-float(arcpy.Describe(rawtilelist[0]).width) / math.floor(cellsize_ratio)
-
-hysogagg_dict = {}
-
-######################################## Iterate through GLAD tiles to pre-process #####################################
-mod44w_mosaiclist = []
-
-#For each GLAD 10 degree by 10 degree tile
-print('Iterating through GLAD tiles...')
-# for gladtile in rawtilelist:
-#     print(gladtile)
-#For troublshooting
-    #gladtile = os.path.join(gladresgdb, 'glad_seatest')
-    #gladtileid = "seatest"
-
-gladtile = rawtilelist[1]
-gladtileid = 'glad{}'.format(re.sub('(^.*class99_1[89]_)|([.]tif)', '', gladtile)) #Unique identifier for glad tile based on coordinates
-gladtile_extent = arcpy.Describe(gladtile).extent
-
-#---------------------------- Identify sea vs freshwater pixels --------------------------------------------------------
-#----------- Format MODIS ----------------------------------------------------------------------------------------------
-#First check whether an already-processed MODIS tile contains the entire area
-print('Getting mosaic of MODIS tiles that intersect GLAD tile...')
-mod44w_seltiles = get_inters_tiles(ref_extent=gladtile_extent, tileiterator=mod44w_mosaiclist, containsonly=True)
-
-#If no existing extracted mosaick exists
-if len(mod44w_seltiles)>1 or len(mod44w_seltiles)==0:
-    mod44w_seltiles = get_inters_tiles(ref_extent=gladtile_extent, tileiterator=mod44w_wgsextdict, containsonly=False)
-
-    #Extract QA dataset
-    mod44w_seltilesQA = []
-    for tile in mod44w_seltiles:
-        outQA = os.path.join(mod44w_resgdb, "QA_{}".format(re.sub('[.]', '_', os.path.splitext(os.path.split(tile)[1])[0])))
-        if not arcpy.Exists(outQA):
-            print(outQA)
-            arcpy.ExtractSubDataset_management(in_raster=tile, out_raster=outQA, subdataset_index=1)
-        mod44w_seltilesQA.append(outQA)
-
-    #If multiple MODIS tiles intersect GLAD tile, mosaick them
-    if len(mod44w_seltilesQA) > 1:
-        mod44w_gladmatch = os.path.join(mod44w_resgdb, 'mod44wQA_gladmosaic{}'.format(gladtileid))
-        if not arcpy.Exists(mod44w_gladmatch):
-            arcpy.MosaicToNewRaster_management(mod44w_seltilesQA,
-                                               os.path.split(mod44w_gladmatch)[0],
-                                               raster_dataset_name_with_extension=os.path.split(mod44w_gladmatch)[1],
-                                               number_of_bands=1)
-            mod44w_mosaiclist.append(mod44w_gladmatch)
-
-    #Otherwise, simply use the one MODIS tile
-    else:
-        mod44w_gladmatch = mod44w_seltilesQA
-
-#If a MODIS mosaick already contains the GLAD tile, use that one
-else:
-    mod44w_gladmatch = mod44w_seltiles
-
-#Check whether there are any seawater pixels in MODIS within the extent of the GLAD tile
-print('Checking whether there are seawater pixels in MODIS within GLAD tile extent...')
-cliprec = project_extent(in_dataset=gladtile, out_coor_system=mod44w_gladmatch, out_dataset=None)
-modtileclip = arcpy.Clip_management(in_raster=mod44w_gladmatch,
-                                    rectangle="{0} {1} {2} {3}".format(
-                                        cliprec.XMin, cliprec.YMin, cliprec.XMax, cliprec.YMax),
-                                    out_raster=os.path.join(mod44w_resgdb, 'modclip2'))
-
-if not Raster(modtileclip).hasRAT and arcpy.Describe(modtileclip).bandCount == 1:  # Build attribute table if doesn't exist
-    try:
-        arcpy.BuildRasterAttributeTable_management(modtileclip)  # Does not work
-    except Exception:
-        e = sys.exc_info()[1]
-        print(e.args[0])
-        arcpy.DeleteRasterAttributeTable_management(modtileclip)
-
-mod44wvals = {row[0] for row in arcpy.da.SearchCursor(modtileclip, 'Value')}
-
-# If there are sea pixels in MODIS, then create a seamask
-outseafinal = os.path.join(gladresgdb, '{}_seamask'.format(gladtileid))
-
 def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpath, processgdb):
     """
     Identifies sea/ocean water pixels in a GLAD surface water classes tile
@@ -204,11 +78,16 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
     print('    2/15 - Project and resample MODIS to match GLAD tile...')
     arcpy.env.snapRaster = in_gladtile
     arcpy.env.extent = in_gladtile
-    mod44w_gladmatch_wgs = os.path.join(mod44w_outdir, 'mod44wQA_gladwgs{}'.format(gladtileid))
+    mod44w_gladmatch_wgs = os.path.join(mod44w_outdir, 'mod44wQA_glad{}_wgs'.format(gladtileid))
     if not arcpy.Exists(mod44w_gladmatch_wgs):
+        try:
+            arcpy.Delete_management(mod44w_gladmatch_wgs)
+        except:
+            traceback.print_exc()
         arcpy.ProjectRaster_management(modmaj,
                                        out_raster=mod44w_gladmatch_wgs,
-                                       out_coor_system=in_gladtile,
+                                       in_coor_system=arcpy.Describe(in_mod44w).SpatialReference,
+                                       out_coor_system= arcpy.SpatialReference(4326), #WGS84, same as  in_gladtile,
                                        cell_size=arcpy.Describe(in_gladtile).meanCellWidth,
                                        resampling_type='NEAREST')
 
@@ -218,7 +97,7 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
     alos_seltiles = get_inters_tiles(ref_extent=gladtile_extent, tileiterator=in_alositerator, containsonly=False)
 
     # Format ALOS
-    alos_mosaictile = os.path.join(processgdb, 'alos_mosaic{}'.format(gladtileid))
+    alos_mosaictile = os.path.join(processgdb, 'alos_mosaic_{}'.format(gladtileid))
     print('    4/15 - Mosaicking ALOS DEM tiles...')
     if not arcpy.Exists(alos_mosaictile):
         arcpy.MosaicToNewRaster_management(input_rasters=alos_seltiles,
@@ -344,17 +223,155 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
                 9,
                 in_gladtile)).save(outpath)
 
-if 4 in mod44wvals and not arcpy.Exists(outseafinal):
+#---------------------------- Remove GLAD tiles with only 0 values -----------------------------------------------------
+remove0tiles = False #This takes a bit of time to run so, the first time the code is run after downloading GLAD tiles, it should be run once
+
+if remove0tiles == True:
+    print('Removing GLAD tiles with only NoData or Sparse values...')
+    for tile in rawtilelist:
+        print(tile)
+        # Get unique categorical values
+        if not Raster(tile).hasRAT and arcpy.Describe(tile).bandCount == 1:  # Build attribute table if doesn't exist
+            try:
+                arcpy.BuildRasterAttributeTable_management(tile)  # Does not work
+            except Exception:
+                e = sys.exc_info()[1]
+                print(e.args[0])
+                arcpy.DeleteRasterAttributeTable_management(tile)
+
+        gladvals = {row[0] for row in arcpy.da.SearchCursor(tile, 'Value')}
+
+        if len(gladvals) == 1:  # If only one value across entire tile
+            if list(gladvals)[0] == 0 or list(gladvals)[0] == 12:  # And that value is NoData
+                print('Tile only has NoData values, deleting...')
+                arcpy.Delete_management(tile)  # Delete tile
+        if len(gladvals) == 2:  # If only one value across entire tile
+            if 0 in gladvals & 12 in gladvals:
+                print('Tile only has NoData values, deleting...')
+                arcpy.Delete_management(tile)  # Delete tile
+
+#---------------------------- Get dictionary of MODIS tile extents -----------------------------------------------------
+#Get wgs84 extent of all mod44w tiles (because MODIS is in custom Spheroid Sinusoidal projection)
+mod44w_wgsextdict= {}
+mod44w_sr = arcpy.Describe(mod44w_tilelist[0]).spatialReference
+print('Getting dictionary of MODIS tile extents in WGS84...')
+for i in mod44w_tilelist:
+    #Get MODIS tile id
+    modtileid = re.search('(?<=MOD44W_A2015001_)h[0-9]{2}v[0-9]{2}(?=[0-9_]{18}[.]hdf)',
+                          os.path.split(i)[1]).group()
+    outmodext = os.path.join(mod44w_resgdb, 'extpoly{}'.format(modtileid))
+    if not arcpy.Exists(outmodext):
+        print(i)
+        mod44w_wgsextdict[i] = project_extent(in_dataset=i, out_coor_system=rawtilelist[0], out_dataset=outmodext)
+    else:
+        #Add extent to dictionary as value with MODIS tile id as the key
+        mod44w_wgsextdict[i] = arcpy.Describe(outmodext).extent
+
+
+#---------------------------- Prep for GLAD matching to HydroSHEDS -----------------------------------------------------
+#Check aggregation ratio
+cellsize_ratio = arcpy.Describe(hydrotemplate).meanCellWidth / arcpy.Describe(rawtilelist[0]).meanCellWidth
+print('Aggregating GLAD by cell size ratio of {0} would lead to a difference in resolution of {1} mm'.format(
+    math.floor(cellsize_ratio),
+    11100000 * (arcpy.Describe(hydrotemplate).meanCellWidth - math.floor(cellsize_ratio) * arcpy.Describe(
+        rawtilelist[0]).meanCellWidth)
+))
+# Make sure that the cell size ratio is a multiple of the number of rows and columns in DEM tiles to not have edge effects
+float(arcpy.Describe(rawtilelist[0]).height) / math.floor(cellsize_ratio)
+float(arcpy.Describe(rawtilelist[0]).width) / math.floor(cellsize_ratio)
+
+hysogagg_dict = {}
+
+######################################## Iterate through GLAD tiles to pre-process #####################################
+mod44w_mosaiclist = []
+
+#For each GLAD 10 degree by 10 degree tile
+print('Iterating through GLAD tiles...')
+for gladtile in rawtilelist:
+    gladtileid = 'glad{}'.format(
+        re.sub('(^.*class99_1[89]_)|([.]tif)', '', gladtile))  # Unique identifier for glad tile based on coordinates
+    outseafinal = os.path.join(gladresgdb, '{}_seamask'.format(gladtileid))
     if not os.path.exists(outseafinal):
-        tic = time.time()
-        create_GLADseamask(in_gladtile=gladtile,
-                           in_mod44w=mod44w_gladmatch,
-                           in_alositerator=alos_wgsextdict,
-                           in_lakes=hydrolakes,
-                           outpath=outseafinal,
-                           processgdb=gladresgdb)
-        print(time.time()-tic)
-    gladtile = outseafinal
+        print(gladtile)
+        #For troublshooting
+            #gladtile = os.path.join(gladresgdb, 'glad_seatest')
+            #gladtileid = "seatest"
+            #gladtile = rawtilelist[1]
+
+        gladtile_extent = arcpy.Describe(gladtile).extent
+
+        #---------------------------- Identify sea vs freshwater pixels --------------------------------------------------------
+        #----------- Format MODIS ----------------------------------------------------------------------------------------------
+        #First check whether an already-processed MODIS tile contains the entire area
+        print('Getting mosaic of MODIS tiles that intersect GLAD tile...')
+        mod44w_seltiles = get_inters_tiles(ref_extent=gladtile_extent, tileiterator=mod44w_mosaiclist, containsonly=True)
+
+        #If no existing extracted mosaick exists
+        if len(mod44w_seltiles)>1 or len(mod44w_seltiles)==0:
+            mod44w_seltiles = get_inters_tiles(ref_extent=gladtile_extent, tileiterator=mod44w_wgsextdict, containsonly=False)
+
+            #Extract QA dataset
+            mod44w_seltilesQA = []
+            for tile in mod44w_seltiles:
+                modtileid = re.search('(?<=MOD44W_A2015001_)h[0-9]{2}v[0-9]{2}(?=[0-9_]{18}[.]hdf)',
+                                      os.path.split(tile)[1]).group()
+                outQA = os.path.join(mod44w_resgdb, "QA_{}".format(modtileid))
+                if not arcpy.Exists(outQA):
+                    print(outQA)
+                    arcpy.ExtractSubDataset_management(in_raster=tile, out_raster=outQA, subdataset_index=1)
+                mod44w_seltilesQA.append(outQA)
+
+            #If multiple MODIS tiles intersect GLAD tile, mosaick them
+            if len(mod44w_seltilesQA) > 1:
+                mod44w_gladmatch = os.path.join(mod44w_resgdb, 'mod44wQA_gladmosaic{}'.format(gladtileid))
+                if not arcpy.Exists(mod44w_gladmatch):
+                    arcpy.MosaicToNewRaster_management(input_rasters=mod44w_seltilesQA,
+                                                       output_location=os.path.split(mod44w_gladmatch)[0],
+                                                       raster_dataset_name_with_extension=os.path.split(mod44w_gladmatch)[1],
+                                                       number_of_bands=1,
+                                                       mosaic_method='FIRST')
+                    mod44w_mosaiclist.append(mod44w_gladmatch)
+
+            #Otherwise, simply use the one MODIS tile
+            else:
+                mod44w_gladmatch = mod44w_seltilesQA
+
+        #If a MODIS mosaick already contains the GLAD tile, use that one
+        else:
+            mod44w_gladmatch = mod44w_seltiles
+
+        #Check whether there are any seawater pixels in MODIS within the extent of the GLAD tile
+        print('Checking whether there are seawater pixels in MODIS within GLAD tile extent...')
+        cliprec = project_extent(in_dataset=gladtile, out_coor_system=mod44w_gladmatch, out_dataset=None)
+        modtileclip_out = os.path.join(mod44w_resgdb, 'modclip{}'.format(gladtileid))
+        modtileclip = arcpy.Clip_management(in_raster=mod44w_gladmatch,
+                                            rectangle="{0} {1} {2} {3}".format(
+                                                cliprec.XMin, cliprec.YMin, cliprec.XMax, cliprec.YMax),
+                                            out_raster=modtileclip_out)
+
+        if not Raster(modtileclip).hasRAT and arcpy.Describe(modtileclip).bandCount == 1:  # Build attribute table if doesn't exist
+            try:
+                arcpy.BuildRasterAttributeTable_management(modtileclip)  # Does not work
+            except Exception:
+                e = sys.exc_info()[1]
+                print(e.args[0])
+                arcpy.DeleteRasterAttributeTable_management(modtileclip)
+
+        mod44wvals = {row[0] for row in arcpy.da.SearchCursor(modtileclip, 'Value')}
+        arcpy.Delete_management(modtileclip_out)
+
+        # If there are sea pixels in MODIS, then create a seamask
+        if 4 in mod44wvals and not arcpy.Exists(outseafinal):
+            if not os.path.exists(outseafinal):
+                tic = time.time()
+                create_GLADseamask(in_gladtile=gladtile,
+                                   in_mod44w=mod44w_gladmatch,
+                                   in_alositerator=alos_wgsextdict,
+                                   in_lakes=hydrolakes,
+                                   outpath=outseafinal,
+                                   processgdb=gladresgdb)
+                print(time.time()-tic)
+            gladtile = outseafinal
 
 #---------------------------- Aggregate GLAD to match HydroSHEDS -----------------------------------------------------
 print(tile)
