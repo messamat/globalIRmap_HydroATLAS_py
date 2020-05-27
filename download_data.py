@@ -19,6 +19,55 @@ from collections import defaultdict
 import tarfile
 import lxml
 from functools import reduce
+import time
+from functools import wraps
+import cPickle as pickle
+
+def retry(ExceptionToCheck, tries=4, delay=3, backoff=2, logger=None):
+    """Retry calling the decorated function using an exponential backoff.
+
+    http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
+    original from: http://wiki.python.org/moin/PythonDecoratorLibrary#Retry
+
+    :param ExceptionToCheck: the exception to check. may be a tuple of
+        exceptions to check
+    :type ExceptionToCheck: Exception or tuple
+    :param tries: number of times to try (not retry) before giving up
+    :type tries: int
+    :param delay: initial delay between retries in seconds
+    :type delay: int
+    :param backoff: backoff multiplier e.g. value of 2 will double the delay
+        each retry
+    :type backoff: int
+    :param logger: logger to use. If None, print
+    :type logger: logging.Logger instance
+    """
+    def deco_retry(f):
+
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except ExceptionToCheck, e:
+                    msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
+                    if logger:
+                        logger.warning(msg)
+                    else:
+                        print msg
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+
+        return f_retry  # true decorator
+
+    return deco_retry
+
+@retry(urllib2.URLError, tries=4, delay=3, backoff=2)
+def urlopen_with_retry(in_url):
+    return urllib2.urlopen(in_url)
 
 #pip install pyproj==1.9.6 owslib==0.18 - 0.19 dropped python 2.7
 #from owslib.wcs import WebCoverageService  # OWSlib module to access WMS services from SDAT
@@ -29,6 +78,119 @@ datdir = os.path.join(rootdir, 'data')
 resdir = os.path.join(rootdir, 'results')
 glad_dir = os.path.join(datdir, 'GLAD')
 pathcheckcreate(glad_dir)
+
+# ------------------------------- Download SoilGrids250 m data -------------------------------------------------------------
+#How to make the soil mask? https://github.com/ISRICWorldSoil/SoilGrids250m/blob/1a04d4214c0efabfe15abd621a6c299c173e402c/grids/GlobCover30/soilmask_250m.R
+
+#Create output directory
+sg_outdir = os.path.join(datdir, 'SOILGRIDS250')
+pathcheckcreate(sg_outdir)
+
+#Parse HTML to get all available layers
+sg_https = "https://files.isric.org/soilgrids/data/recent/"
+sg_r = urllib2.urlopen(sg_https)
+sg_soup = BeautifulSoup(sg_r, features="html.parser")
+
+#Get a list of all directories that contain variables in HTTP server
+sg_dirdict = defaultdict(list)
+for link in sg_soup.findAll('a', attrs={'href': re.compile("^[a-z]*[/]$")}):
+    sg_dirdict[re.search("^[a-zA-Z1-9]+(?=[/])", link.get('href')).group()].append(
+        urlparse.urljoin(sg_https, link.get('href')))
+
+#Within each directory, get list of depth mean values dirs, vrt and ovr files
+sg_lyrdict = defaultdict(list)
+for dir in sg_dirdict:
+    print(dir)
+    dirurl = sg_dirdict[dir][0]
+    sgdir_r = urllib2.urlopen(dirurl)
+    sgdir_soup = BeautifulSoup(sgdir_r, features="html.parser")
+    for link in sgdir_soup.findAll('a', attrs={'href': re.compile(".*_mean[/.].*")}):
+        sg_lyrdict[dir].append(urlparse.urljoin(dirurl, link.get('href')))
+
+#Get tiling example for a given theme
+tilesuffix_pickle = os.path.join(sg_outdir, 'tilsuffixl.pkl')
+
+if not os.path.exists(tilesuffix_pickle):
+    sanddir_r = urllib2.urlopen(sg_lyrdict['sand'][2])
+    sanddir_soup = BeautifulSoup(sanddir_r, features="html.parser")
+    tilesuffixl = list()
+    for link in sanddir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
+        print(link)
+        bigtiledir = urlparse.urljoin(sg_lyrdict['ocs'][2], link.get('href'))
+        bigtiledir_r = urlopen_with_retry(bigtiledir)
+        bigtiledir_soup = BeautifulSoup(bigtiledir_r, features="html.parser")
+        for smalltile in bigtiledir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
+            tilesuffixl.append(urlparse.urljoin(link.get('href'), smalltile.get('href')))
+
+    #Pickle the suffix list
+    with open(tilesuffix_pickle, "wb") as f:
+        pickle.dump(tilesuffixl,f)
+
+else:
+    with open(tilesuffix_pickle, 'rb') as f:
+        tilesuffixl = pickle.load(f)
+
+#Download tile for each particle size of interest
+for partsize in ['silt', 'sand', 'clay']:
+    partizedir = os.path.join(sg_outdir, partsize)
+    pathcheckcreate(partizedir)
+    for link in sg_lyrdict[partsize]:
+        if re.search('.*_mean[/]$', link): #If directory of soil property value tiles
+            depthdir = os.path.join(partizedir,
+                                    re.sub('[-]', '_',
+                                           link.rsplit('/', 2)[1]))
+            pathcheckcreate(depthdir)
+            for suffix in tilesuffixl:
+                tile_url = urlparse.urljoin(link, suffix)
+                outlyr = os.path.split(tile_url)[1]
+                if not os.path.exists(os.path.join(depthdir, outlyr)):
+                    dlfile(url=tile_url, outpath=depthdir, outfile=outlyr, ignore_downloadable=True)
+
+        else:# .vrt or .vrt.ovr files
+            depthdir = os.path.join(partizedir,
+                                    re.sub('[-]', '_',
+                                           os.path.splitext(link.rsplit('/', 2)[-1])[0]))
+            pathcheckcreate(depthdir)
+            tile_url = link
+            outlyr = os.path.split(tile_url)[1]
+
+            if re.search('.*_mean[.]vrt[.]ovr$', link): #.vrt.ovr file
+                dlfile(url=tile_url, outpath=depthdir, outfile=outlyr, ignore_downloadable=True)
+
+            else: #.vrt file
+                vrtrequest = requests.get(tile_url, allow_redirects=True)
+                print('Downloading {}...'.os.path.join(outlyr))
+                with open(os.path.join(depthdir, outlyr), 'wb') as f:
+                    f.write(vrtrequest.text)
+
+
+
+
+
+
+
+
+
+
+
+
+#Download all layers of interest
+#for lyrk in sg_lyrdict.keys():
+lyrk = "SLGWRB"
+if lyrk not in ["TAXNWRB", "TAXOUSDA"]:
+    outdir = os.path.join(sg_outdir, lyrk)
+    pathcheckcreate(outdir)
+
+    for lyrurl in sg_lyrdict[lyrk]:
+        print(lyrurl)
+        #dlfile(url=lyrurl, outpath=outdir, outfile=os.path.split(lyrurl)[1], fieldnames=None)
+
+# ----------------------------- Download ESA water bodies Ocean vs Inland vs Land --------------------------------------
+
+# ----------------------------- Download 2015 ESA Land Cover data to match SoilGrids250 --------------------------------
+#http://maps.elie.ucl.ac.be/CCI/viewer/download.php
+
+
 
 # ----------------------------- Download ALOS DEM data ----------------------------------------------------------------------
 #Main page https://www.eorc.jaxa.jp/ALOS/en/aw3d30/
@@ -217,37 +379,6 @@ for f in ee_tarlist:
 #Try WMS service e.g. https://gis.stackexchange.com/questions/283900/getting-wms-server-from-globeland30-landcover-interactive-map
 #http://218.244.250.80:8080/erdas-apollo/coverage/CGLC?LAYERS=cglc30_2010_0&TRANSPARENT=TRUE&FORMAT=image%2Fpng&SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&STYLES=&SRS=EPSG%3A900913&BBOX=-176110.91314453,6124746.201582,-156543.03390625,6144314.0808203&WIDTH=256&HEIGHT=256
 #http://218.244.250.80:8080/erdas-apollo/coverage/CGLC?service=wms&request=getCapabilities
-
-# ------------------------------- Download SoilGrids250 m data -------------------------------------------------------------
-#How to make the soil mask? https://github.com/ISRICWorldSoil/SoilGrids250m/blob/1a04d4214c0efabfe15abd621a6c299c173e402c/grids/GlobCover30/soilmask_250m.R
-
-#Create output directory
-sg_outdir = os.path.join(datdir, 'SOILGRIDS250')
-pathcheckcreate(sg_outdir)
-
-# Download metadata
-dlfile("https://files.isric.org/soilgrids/data/recent/META_GEOTIFF_1B.csv", sg_outdir)
-
-#Parse HTML to get all available layers
-sg_https = "https://files.isric.org/soilgrids/data/recent/"
-sg_r = urllib2.urlopen(sg_https)
-sg_soup = BeautifulSoup(sg_r, features="html.parser")
-
-sg_lyrdict = defaultdict(list)
-for link in sg_soup.findAll('a', attrs={'href': re.compile(".*[.]tif$")}):
-    sg_lyrdict[re.search("^[a-zA-Z1-9]+(?=_)", link.get('href')).group()].append(
-        urlparse.urljoin(sg_https, link.get('href')))
-
-#Download all layers of interest
-#for lyrk in sg_lyrdict.keys():
-lyrk = "SLGWRB"
-if lyrk not in ["TAXNWRB", "TAXOUSDA"]:
-    outdir = os.path.join(sg_outdir, lyrk)
-    pathcheckcreate(outdir)
-
-    for lyrurl in sg_lyrdict[lyrk]:
-        print(lyrurl)
-        #dlfile(url=lyrurl, outpath=outdir, outfile=os.path.split(lyrurl)[1], fieldnames=None)
 
 #------------------------------- Download MODIS 250 m land and water mask to enhance SoilGrids -------------------------
 # Create output directory
