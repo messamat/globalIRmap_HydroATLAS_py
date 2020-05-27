@@ -9,6 +9,10 @@ from utility_functions import *
 import numpy as np
 import cProfile
 
+######### TO DO: Check out 00 30
+#Issues in Mask (0 values where there is permanent water)
+#Places where water has overtaken land along the coast (seem to be MODIS-pixels sized)
+
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 arcpy.env.parallelProcessingFactor = "100%"
@@ -67,12 +71,13 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
 
     print('Creating seamask for {}...'.format(gladtileid))
     # Run a 3x3 majority filter on MODIS to get rid of isolated sea pixels
-    modmaj = os.path.join(mod44w_outdir, 'modmaj_{}'.format(gladtileid))
+    modmaj = os.path.join(mod44w_outdir, 'mod44wmaj_{}'.format(gladtileid))
     print('    1/15 - Majority filter of MODIS QA layer...')
     if not arcpy.Exists(modmaj):
-        FocalStatistics(in_raster=in_mod44w,
-                        neighborhood=NbrRectangle(4, 4, "CELL"),
-                        statistics_type='MAJORITY').save(modmaj)
+        focallyr = FocalStatistics(in_raster=in_mod44w,
+                                   neighborhood=NbrRectangle(4, 4, "CELL"),
+                                   statistics_type='MAJORITY')
+        Con(IsNull(focallyr), Raster(in_mod44w), focallyr).save(modmaj)
 
     # Project, adjust cell size, and snap MODIS to GLAD tile
     print('    2/15 - Project and resample MODIS to match GLAD tile...')
@@ -216,12 +221,19 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
                         statistics_type='RANGE').save(outzone)
 
     print('    15/15 - Creating final formatted GLAD tile with sea mask...')
+    # #1. To deal with remaining NoData (< 0 elevation)
+    # #2. There are NoData pixels that remain following the second nibble in areas where formerly water pixels have become
+    # out of contact with any other water pixel. This carries into outregion and outzone, and so must be dealt with
+    # in the last step
+    # #3 all other pixels that have been identified as sea water
+
     if not arcpy.Exists(outpath):
-        Con(IsNull(Raster(outregionclean)), in_gladtile,  # To deal with remaining NoData (< 0 elevation)
-            Con(((Raster(outzone) == 0) & (Raster(outeuc) == 3) & (Raster(outregionclean) == 2)) | (
+        Con(IsNull(Raster(outregionclean)), in_gladtile,                                                    #1
+            Con(IsNull(outzone), in_gladtile,                                                               #2
+                Con(((Raster(outzone) == 0) & (Raster(outeuc) == 3) & (Raster(outregionclean) == 2)) | (    #3
                         Raster(outregionclean) == 3),
-                9,
-                in_gladtile)).save(outpath)
+                    9,
+                    in_gladtile))).save(outpath)
 
 #---------------------------- Remove GLAD tiles with only 0 values -----------------------------------------------------
 remove0tiles = False #This takes a bit of time to run so, the first time the code is run after downloading GLAD tiles, it should be run once
