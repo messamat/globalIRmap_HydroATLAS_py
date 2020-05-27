@@ -88,7 +88,7 @@ pathcheckcreate(sg_outdir)
 
 #Parse HTML to get all available layers
 sg_https = "https://files.isric.org/soilgrids/data/recent/"
-sg_r = urllib2.urlopen(sg_https)
+sg_r = urlopen_with_retry(sg_https)
 sg_soup = BeautifulSoup(sg_r, features="html.parser")
 
 #Get a list of all directories that contain variables in HTTP server
@@ -102,7 +102,7 @@ sg_lyrdict = defaultdict(list)
 for dir in sg_dirdict:
     print(dir)
     dirurl = sg_dirdict[dir][0]
-    sgdir_r = urllib2.urlopen(dirurl)
+    sgdir_r = urlopen_with_retry(dirurl)
     sgdir_soup = BeautifulSoup(sgdir_r, features="html.parser")
     for link in sgdir_soup.findAll('a', attrs={'href': re.compile(".*_mean[/.].*")}):
         sg_lyrdict[dir].append(urlparse.urljoin(dirurl, link.get('href')))
@@ -111,7 +111,7 @@ for dir in sg_dirdict:
 tilesuffix_pickle = os.path.join(sg_outdir, 'tilsuffixl.pkl')
 
 if not os.path.exists(tilesuffix_pickle):
-    sanddir_r = urllib2.urlopen(sg_lyrdict['sand'][2])
+    sanddir_r = urlopen_with_retry(sg_lyrdict['sand'][2])
     sanddir_soup = BeautifulSoup(sanddir_r, features="html.parser")
     tilesuffixl = list()
     for link in sanddir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
@@ -136,6 +136,7 @@ for partsize in ['silt', 'sand', 'clay']:
     pathcheckcreate(partizedir)
     for link in sg_lyrdict[partsize]:
         if re.search('.*_mean[/]$', link): #If directory of soil property value tiles
+            print(link)
             depthdir = os.path.join(partizedir,
                                     re.sub('[-]', '_',
                                            link.rsplit('/', 2)[1]))
@@ -145,6 +146,8 @@ for partsize in ['silt', 'sand', 'clay']:
                 outlyr = os.path.split(tile_url)[1]
                 if not os.path.exists(os.path.join(depthdir, outlyr)):
                     dlfile(url=tile_url, outpath=depthdir, outfile=outlyr, ignore_downloadable=True)
+                else:
+                    print('{} already exists...'.format(outlyr))
 
         else:# .vrt or .vrt.ovr files
             depthdir = os.path.join(partizedir,
@@ -154,14 +157,18 @@ for partsize in ['silt', 'sand', 'clay']:
             tile_url = link
             outlyr = os.path.split(tile_url)[1]
 
-            if re.search('.*_mean[.]vrt[.]ovr$', link): #.vrt.ovr file
-                dlfile(url=tile_url, outpath=depthdir, outfile=outlyr, ignore_downloadable=True)
+            if re.search('.*_mean[.]vrt[.]ovr$', link): #ignore .vrt.ovr file
+                print('.vrt.ovr file, skipping...')
 
             else: #.vrt file
-                vrtrequest = requests.get(tile_url, allow_redirects=True)
-                print('Downloading {}...'.os.path.join(outlyr))
-                with open(os.path.join(depthdir, outlyr), 'wb') as f:
-                    f.write(vrtrequest.text)
+                outlyr_full = os.path.join(depthdir, outlyr)
+                if not os.path.exists(outlyr_full):
+                    vrtrequest = requests.get(tile_url, allow_redirects=True)
+                    print('Downloading {}...'.format(os.path.join(outlyr)))
+                    with open(outlyr_full, 'wb') as f:
+                        f.write(vrtrequest.text)
+                else:
+                    print('{} already exists...'.format(outlyr))
 
 
 
