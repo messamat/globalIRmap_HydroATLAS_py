@@ -9,10 +9,6 @@ from utility_functions import *
 import numpy as np
 import cProfile
 
-######### TO DO: Check out 00 30
-#Issues in Mask (0 values where there is permanent water)
-#Places where water has overtaken land along the coast (seem to be MODIS-pixels sized)
-
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 arcpy.env.parallelProcessingFactor = "100%"
@@ -235,6 +231,11 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
                     9,
                     in_gladtile))).save(outpath)
 
+    arcpy.ClearEnvironment('extent')
+    arcpy.ClearEnvironment('snapRaster')
+    arcpy.ClearEnvironment('cellSize')
+    arcpy.ClearEnvironment('mask')
+
 #---------------------------- Remove GLAD tiles with only 0 values -----------------------------------------------------
 remove0tiles = False #This takes a bit of time to run so, the first time the code is run after downloading GLAD tiles, it should be run once
 
@@ -299,6 +300,7 @@ mod44w_mosaiclist = []
 
 #For each GLAD 10 degree by 10 degree tile
 print('Iterating through GLAD tiles...')
+#Test MODIS tiling/mosaicking with gladtile = rawtilelist[2]
 for gladtile in rawtilelist:
     gladtileid = 'glad{}'.format(
         re.sub('(^.*class99_1[89]_)|([.]tif)', '', gladtile))  # Unique identifier for glad tile based on coordinates
