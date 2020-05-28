@@ -87,7 +87,7 @@ sg_outdir = os.path.join(datdir, 'SOILGRIDS250')
 pathcheckcreate(sg_outdir)
 
 #Parse HTML to get all available layers
-sg_https = "https://files.isric.org/soilgrids/data/recent/"
+sg_https = "https://files.isric.org/soilgrids/latest/data/"
 sg_r = urlopen_with_retry(sg_https)
 sg_soup = BeautifulSoup(sg_r, features="html.parser")
 
@@ -111,7 +111,7 @@ for dir in sg_dirdict:
 tilesuffix_pickle = os.path.join(sg_outdir, 'tilsuffixl.pkl')
 
 if not os.path.exists(tilesuffix_pickle):
-    sanddir_r = urlopen_with_retry(sg_lyrdict['sand'][2])
+    sanddir_r = urlopen_with_retry(sg_lyrdict['silt'][2])
     sanddir_soup = BeautifulSoup(sanddir_r, features="html.parser")
     tilesuffixl = list()
     for link in sanddir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
