@@ -348,11 +348,11 @@ for gladtile in rawtilelist:
 
             #Otherwise, simply use the one MODIS tile
             else:
-                mod44w_gladmatch = mod44w_seltilesQA
+                mod44w_gladmatch = mod44w_seltilesQA[0]
 
         #If a MODIS mosaick already contains the GLAD tile, use that one
         else:
-            mod44w_gladmatch = mod44w_seltiles
+            mod44w_gladmatch = mod44w_seltiles[0]
 
         #Check whether there are any seawater pixels in MODIS within the extent of the GLAD tile
         print('Checking whether there are seawater pixels in MODIS within GLAD tile extent...')
