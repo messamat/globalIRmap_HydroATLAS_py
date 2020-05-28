@@ -115,12 +115,16 @@ if not os.path.exists(tilesuffix_pickle):
     sanddir_soup = BeautifulSoup(sanddir_r, features="html.parser")
     tilesuffixl = list()
     for link in sanddir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
-        print(link)
-        bigtiledir = urlparse.urljoin(sg_lyrdict['ocs'][2], link.get('href'))
-        bigtiledir_r = urlopen_with_retry(bigtiledir)
-        bigtiledir_soup = BeautifulSoup(bigtiledir_r, features="html.parser")
-        for smalltile in bigtiledir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
-            tilesuffixl.append(urlparse.urljoin(link.get('href'), smalltile.get('href')))
+        try:
+            print(link)
+            bigtiledir = urlparse.urljoin(sg_lyrdict['ocs'][2], link.get('href'))
+            bigtiledir_r = urlopen_with_retry(bigtiledir)
+            bigtiledir_soup = BeautifulSoup(bigtiledir_r, features="html.parser")
+            for smalltile in bigtiledir_soup.findAll('a', attrs={'href': re.compile("tileSG.*")}):
+                tilesuffixl.append(urlparse.urljoin(link.get('href'), smalltile.get('href')))
+        except:
+            traceback.print_exc()
+            pass
 
     #Pickle the suffix list
     with open(tilesuffix_pickle, "wb") as f:
@@ -169,28 +173,6 @@ for partsize in ['silt', 'sand', 'clay']:
                         f.write(vrtrequest.text)
                 else:
                     print('{} already exists...'.format(outlyr))
-
-
-
-
-
-
-
-
-
-
-
-
-#Download all layers of interest
-#for lyrk in sg_lyrdict.keys():
-lyrk = "SLGWRB"
-if lyrk not in ["TAXNWRB", "TAXOUSDA"]:
-    outdir = os.path.join(sg_outdir, lyrk)
-    pathcheckcreate(outdir)
-
-    for lyrurl in sg_lyrdict[lyrk]:
-        print(lyrurl)
-        #dlfile(url=lyrurl, outpath=outdir, outfile=os.path.split(lyrurl)[1], fieldnames=None)
 
 # ----------------------------- Download ESA water bodies Ocean vs Inland vs Land --------------------------------------
 
