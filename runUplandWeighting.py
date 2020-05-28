@@ -94,15 +94,18 @@ try:
 
         # Flow accumulation of value grid and pixel area product
 
-        outFlowAccumulation = FlowAccumulation(direction,r""+ continent[i] + "_xpxarea", "FLOAT")
+        outFlowAccumulation = FlowAccumulation(direction,
+                                               r""+ continent[i] + "_xpxarea", "FLOAT")
         outFlowAccumulation.save(r""+continent[i] + "_xpxarea_ac1")
 
-        outFlowAccumulation_2 = Plus(r""+continent[i] + "_xpxarea_ac1",r"" + continent[i] + "_xpxarea")
+        outFlowAccumulation_2 = Plus(r""+continent[i] + "_xpxarea_ac1",
+                                     r"" + continent[i] + "_xpxarea")
         outFlowAccumulation_2.save(r""+continent[i] + "_xpxarea_ac_fin")
 
         #Divide by the accumulated pixel area grid
 
-        UplandGrid = Divide(r""+continent[i] + "_xpxarea_ac_fin", r"" + upland_grid)
+        UplandGrid = Divide(r""+continent[i] + "_xpxarea_ac_fin",
+                            r"" + upland_grid)
         UplandGrid.save(r""+output_folder + "\output.gdb" + "\\" + prefix + "_" + continent[i])
 
 except Exception, e:
@@ -115,4 +118,5 @@ except Exception, e:
 
 for fc in arcpy.ListRasters():
     arcpy.Delete_management(fc)
+
 __author__ = 'Jojo'
