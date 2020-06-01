@@ -93,7 +93,6 @@ hydrobas_dict = {cont: getfilelist(hydrodir, 'hybas_{}.*[.]shp$'.format(cont), g
 
 #Rasterize basins with
 
-
 #----------------------------------------- Pre-Format MODIS 250m water mask ------------------------------------------------
 for tile in getfilelist(mod44w_outdir, '.*[.]hdf$'):
     #Generate land-water mask

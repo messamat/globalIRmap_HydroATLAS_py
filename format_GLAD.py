@@ -81,10 +81,10 @@ def create_GLADseamask(in_gladtile, in_mod44w, in_alositerator, in_lakes, outpat
     arcpy.env.extent = in_gladtile
     mod44w_gladmatch_wgs = os.path.join(mod44w_outdir, 'mod44wQA_glad{}_wgs'.format(gladtileid))
     if not arcpy.Exists(mod44w_gladmatch_wgs):
-        try:
-            arcpy.Delete_management(mod44w_gladmatch_wgs)
-        except:
-            traceback.print_exc()
+        # try:
+        #     arcpy.Delete_management(mod44w_gladmatch_wgs)
+        # except:
+        #     traceback.print_exc()
         arcpy.ProjectRaster_management(modmaj,
                                        out_raster=mod44w_gladmatch_wgs,
                                        in_coor_system=arcpy.Describe(in_mod44w).SpatialReference,
