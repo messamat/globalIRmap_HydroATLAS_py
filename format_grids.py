@@ -86,12 +86,6 @@ for cont in hydrodir_list.keys():
 
 hydrotemplate = hydromask_dict[hydromask_dict.keys()[0]]  # Grab HydroSHEDS layer for one continent as template
 
-# ------------- Format northern basins into 1-NoData masks -----------------------------------------------------------
-baslist = getfilelist(hydrodir, 'hybas_.*[.]shp$', gdbf=False, nongdbf=True)
-hydrobas_dict = {cont: getfilelist(hydrodir, 'hybas_{}.*[.]shp$'.format(cont), gdbf=False, nongdbf=True)
-                 for cont in {re.search('(?<=hybas_)[a-z]{2}', os.path.split(f)[1]).group() for f in baslist}}
-
-#Rasterize basins with
 
 #----------------------------------------- Pre-Format MODIS 250m water mask ------------------------------------------------
 for tile in getfilelist(mod44w_outdir, '.*[.]hdf$'):

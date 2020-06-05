@@ -73,9 +73,6 @@ for partsize in ['silt', 'sand', 'clay']:
                 else:
                     print('{} already exists...'.format(outlyr))
 
-
-
-
 for partsize in ['silt', 'sand', 'clay']:
     partizedir = os.path.join(sg_outdir, partsize)
     pathcheckcreate(partizedir)

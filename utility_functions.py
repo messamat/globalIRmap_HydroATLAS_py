@@ -39,6 +39,94 @@ rootdir = os.path.dirname(os.path.abspath(__file__)).split('\\src')[0]
 datdir = os.path.join(rootdir, 'data')
 resdir = os.path.join(rootdir, 'results')
 
+
+# Resample a dictionary of rasters (in_vardict) to the resolution of a template raster (in_hydrotemplate), outputting
+# the resampled rasters to paths contained in another dictionary (out_vardict) by keys
+#See resample tool for resampling_type options (BILINEAR, CUBIC, NEAREST, MAJORITY)
+def hydroresample(in_vardict, out_vardict, in_hydrotemplate, resampling_type='NEAREST'):
+    templatedesc = arcpy.Describe(in_hydrotemplate)
+
+    # Check that all in_vardict keys are in out_vardict (that each input path has a matching output path)
+    keymatch = {l: l in out_vardict for l in in_vardict}
+    if not all(keymatch.values()):
+        raise ValueError('All keys in in_vardict are not in out_vardict: {}'.format(
+            [l for l in keymatch if not keymatch[l]]))
+
+    # Iterate through input rasters
+    for var in in_vardict:
+        outresample = out_vardict[var]
+
+        if not arcpy.Exists(outresample):
+            print('Processing {}...'.format(outresample))
+            arcpy.env.extent = arcpy.env.snapRaster = in_hydrotemplate
+            arcpy.env.XYResolution = "0.0000000000000001 degrees"
+            arcpy.env.cellSize = templatedesc.meanCellWidth
+            print('%.17f' % float(arcpy.env.cellSize))
+
+            try:
+                arcpy.Resample_management(in_raster=in_vardict[var],
+                                          out_raster=outresample,
+                                          cell_size=templatedesc.meanCellWidth,
+                                          resampling_type=resampling_type)
+            except Exception:
+                print("Exception in user code:")
+                traceback.print_exc(file=sys.stdout)
+                arcpy.ResetEnvironments()
+
+        else:
+            print('{} already exists...'.format(outresample))
+
+        # Check whether everything is the same
+        maskdesc = arcpy.Describe(outresample)
+
+        extentcomp = maskdesc.extent.JSON == templatedesc.extent.JSON
+        print('Equal extents? {}'.format(extentcomp))
+        if not extentcomp: print("{0} != {1}".format(maskdesc.extent, templatedesc.extent))
+
+        cscomp = maskdesc.meanCellWidth == templatedesc.meanCellWidth
+        print('Equal cell size? {}'.format(cscomp))
+        if not cscomp: print("{0} != {1}".format(maskdesc.meanCellWidth, templatedesc.meanCellWidth))
+
+        srcomp = compsr(outresample, in_hydrotemplate)
+        print('Same Spatial Reference? {}'.format(srcomp))
+        if not srcomp: print("{0} != {1}".format(maskdesc.SpatialReference.name, templatedesc.SpatialReference.name))
+
+    arcpy.ResetEnvironments()
+
+# Perform euclidean allocation on all rasters whose path is provided in a dictionary (in_vardict)
+# for all pixels that are NoData in in_vardict but have data in in_hydrotemplate.
+def hydronibble(in_vardict, out_vardict, in_hydrotemplate, nodatavalue=-9999):
+    arcpy.env.extent = arcpy.env.snapRaster = in_hydrotemplate
+    arcpy.env.XYResolution = "0.0000000000000001 degrees"
+    arcpy.env.cellSize = arcpy.Describe(in_hydrotemplate).meanCellWidth
+
+    # Perform euclidean allocation to HydroSHEDS land mask pixels with no WorldClim data
+    for var in in_vardict:
+        outnib = out_vardict[var]
+        if not arcpy.Exists(outnib):
+            print('Processing {}...'.format(outnib))
+            try:
+                mismask = Con((IsNull(in_vardict[var])) & (~IsNull(in_hydrotemplate)), in_hydrotemplate)
+
+                #Perform euclidean allocation to those pixels
+                Nibble(in_raster=Con(~IsNull(mismask), nodatavalue, in_vardict[var]), #where mismask is not NoData (pixels for which var is NoData but hydrotemplate has data), assign nodatavalue (provided by user, not NoData), otherwise, keep var data (see Nibble tool)
+                       in_mask_raster=in_vardict[var],
+                       nibble_values='DATA_ONLY',
+                       nibble_nodata='PRESERVE_NODATA').save(outnib)
+
+                del mismask
+
+            except Exception:
+                print("Exception in user code:")
+                traceback.print_exc(file=sys.stdout)
+                del mismask
+                arcpy.ResetEnvironments()
+
+        else:
+            print('{} already exists...'.format(outnib))
+
+    arcpy.ResetEnvironments()
+
 #Retry three times if urllib2.urlopen fails
 def retry(ExceptionToCheck, tries=4, delay=3, backoff=2, logger=None):
     """Retry calling the decorated function using an exponential backoff.

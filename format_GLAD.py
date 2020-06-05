@@ -9,6 +9,8 @@ from utility_functions import *
 import numpy as np
 import cProfile
 
+
+############# COMPARE AGAINST SRTM WATER BODY DATASET OCEAN POLYGONS #####################################
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 arcpy.env.parallelProcessingFactor = "100%"
