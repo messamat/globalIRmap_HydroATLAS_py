@@ -8,13 +8,6 @@ import time
 import csv
 
 # Use all of the cores on the machine.
-arcpy.env.parallelProcessingFactor = "100%"
-
-start = time.clock()
-ts = int(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
-arcpy.AddMessage(str(ts))
-
-
 def set_environment(workspace, mask_layer):
     arcpy.CheckOutExtension("spatial")
     arcpy.env.cellSize = mask_layer
@@ -39,84 +32,91 @@ def createWorkspace(scratchws, ts):
         print("Line %i" % tb.tb_lineno, 2)
         print(str(e.message), 2)
 
-#SET PARAMETERS
+if __name__ == '__main__':
+    arcpy.env.parallelProcessingFactor = "100%"
 
-#VALUE GRID
-value_grid = arcpy.GetParameterAsText(0)
+    start = time.clock()
+    ts = int(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+    arcpy.AddMessage(str(ts))
 
-#LOCAL WEIGHT GRID
-local_grid = arcpy.GetParameterAsText(1)
+    #SET PARAMETERS
 
-#UPLAND WEIGHT GRID
-upland_grid = arcpy.GetParameterAsText(2)
+    #VALUE GRID
+    value_grid = arcpy.GetParameterAsText(0)
 
-#GRID LAYERS FOLDER
+    #LOCAL WEIGHT GRID
+    local_grid = arcpy.GetParameterAsText(1)
 
-grid_loc = arcpy.GetParameterAsText(3)
+    #UPLAND WEIGHT GRID
+    upland_grid = arcpy.GetParameterAsText(2)
 
-#SELECT CONTINENT
+    #GRID LAYERS FOLDER
 
-cont = arcpy.GetParameterAsText(4)
+    grid_loc = arcpy.GetParameterAsText(3)
 
-continent = []
+    #SELECT CONTINENT
 
-for fc in cont.split(';'):
-    continent.append(str(fc)[-3:][:2])
+    cont = arcpy.GetParameterAsText(4)
 
-# List continent
-arcpy.AddMessage(continent)
+    continent = []
 
-#WORKSPACE FOLDER
+    for fc in cont.split(';'):
+        continent.append(str(fc)[-3:][:2])
 
-workspaceFolder = arcpy.GetParameterAsText(5)
-workspace = createWorkspace(workspaceFolder, ts)
+    # List continent
+    arcpy.AddMessage(continent)
 
-#OUTPUT PREFIX
-prefix = arcpy.GetParameterAsText(6)
+    #WORKSPACE FOLDER
 
-#OUTPUT FOLDER
-output_folder = arcpy.GetParameterAsText(7)
+    workspaceFolder = arcpy.GetParameterAsText(5)
+    workspace = createWorkspace(workspaceFolder, ts)
 
-if not arcpy.Exists(r"" + output_folder + "\output.gdb"):
-    arcpy.CreateFileGDB_management(r""+output_folder, "output.gdb")
+    #OUTPUT PREFIX
+    prefix = arcpy.GetParameterAsText(6)
 
-try:
+    #OUTPUT FOLDER
+    output_folder = arcpy.GetParameterAsText(7)
 
-    for i in range(0,len(continent)):
+    if not arcpy.Exists(r"" + output_folder + "\output.gdb"):
+        arcpy.CreateFileGDB_management(r""+output_folder, "output.gdb")
 
-        direction = r"" + grid_loc + '\\' + continent[i] + "_dir_15s"
+    try:
 
-        set_environment(workspace, direction)
+        for i in range(0,len(continent)):
 
-        # Multiply input grid by pixel area
-        valueXarea = Times(r""+ value_grid,r"" + local_grid)
-        valueXarea.save(r""+ continent[i] + "_xpxarea")
+            direction = r"" + grid_loc + '\\' + continent[i] + "_dir_15s"
 
-        # Flow accumulation of value grid and pixel area product
+            set_environment(workspace, direction)
 
-        outFlowAccumulation = FlowAccumulation(direction,
-                                               r""+ continent[i] + "_xpxarea", "FLOAT")
-        outFlowAccumulation.save(r""+continent[i] + "_xpxarea_ac1")
+            # Multiply input grid by pixel area
+            valueXarea = Times(r""+ value_grid,r"" + local_grid)
+            valueXarea.save(r""+ continent[i] + "_xpxarea")
 
-        outFlowAccumulation_2 = Plus(r""+continent[i] + "_xpxarea_ac1",
-                                     r"" + continent[i] + "_xpxarea")
-        outFlowAccumulation_2.save(r""+continent[i] + "_xpxarea_ac_fin")
+            # Flow accumulation of value grid and pixel area product
 
-        #Divide by the accumulated pixel area grid
+            outFlowAccumulation = FlowAccumulation(direction,
+                                                   r""+ continent[i] + "_xpxarea", "FLOAT")
+            outFlowAccumulation.save(r""+continent[i] + "_xpxarea_ac1")
 
-        UplandGrid = Divide(r""+continent[i] + "_xpxarea_ac_fin",
-                            r"" + upland_grid)
-        UplandGrid.save(r""+output_folder + "\output.gdb" + "\\" + prefix + "_" + continent[i])
+            outFlowAccumulation_2 = Plus(r""+continent[i] + "_xpxarea_ac1",
+                                         r"" + continent[i] + "_xpxarea")
+            outFlowAccumulation_2.save(r""+continent[i] + "_xpxarea_ac_fin")
 
-except Exception, e:
+            #Divide by the accumulated pixel area grid
 
-    # If an error occurred, print line number and error message
-    import traceback, sys
-    tb = sys.exc_info()[2]
-    arcpy.AddMessage("Line %i" % tb.tb_lineno)
-    arcpy.AddMessage(str(e.message))
+            UplandGrid = Divide(r""+continent[i] + "_xpxarea_ac_fin",
+                                r"" + upland_grid)
+            UplandGrid.save(r""+output_folder + "\output.gdb" + "\\" + prefix + "_" + continent[i])
 
-for fc in arcpy.ListRasters():
-    arcpy.Delete_management(fc)
+    except Exception, e:
 
-__author__ = 'Jojo'
+        # If an error occurred, print line number and error message
+        import traceback, sys
+        tb = sys.exc_info()[2]
+        arcpy.AddMessage("Line %i" % tb.tb_lineno)
+        arcpy.AddMessage(str(e.message))
+
+    for fc in arcpy.ListRasters():
+        arcpy.Delete_management(fc)
+
+    __author__ = 'Jojo'
