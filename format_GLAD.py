@@ -307,7 +307,7 @@ for gladtile in rawtilelist:
     gladtileid = 'glad{}'.format(
         re.sub('(^.*class99_1[89]_)|([.]tif)', '', gladtile))  # Unique identifier for glad tile based on coordinates
     outseafinal = os.path.join(gladresgdb, '{}_seamask'.format(gladtileid))
-    if not os.path.exists(outseafinal):
+    if not arcpy.Exists(outseafinal):
         print(gladtile)
         #For troublshooting
             #gladtile = os.path.join(gladresgdb, 'glad_seatest')
@@ -378,16 +378,17 @@ for gladtile in rawtilelist:
 
         # If there are sea pixels in MODIS, then create a seamask
         if 4 in mod44wvals and not arcpy.Exists(outseafinal):
-            if not os.path.exists(outseafinal):
-                tic = time.time()
-                create_GLADseamask(in_gladtile=gladtile,
-                                   in_mod44w=mod44w_gladmatch,
-                                   in_alositerator=alos_wgsextdict,
-                                   in_lakes=hydrolakes,
-                                   outpath=outseafinal,
-                                   processgdb=gladresgdb)
-                print(time.time()-tic)
+            tic = time.time()
+            create_GLADseamask(in_gladtile=gladtile,
+                               in_mod44w=mod44w_gladmatch,
+                               in_alositerator=alos_wgsextdict,
+                               in_lakes=hydrolakes,
+                               outpath=outseafinal,
+                               processgdb=gladresgdb)
+            print(time.time()-tic)
             gladtile = outseafinal
+    else:
+        print('{} already exists...'.format(outseafinal))
 
 #---------------------------- Aggregate GLAD to match HydroSHEDS -----------------------------------------------------
 print(tile)
