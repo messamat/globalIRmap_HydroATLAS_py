@@ -1,4 +1,5 @@
 from utility_functions import *
+from format_HydroSHEDS import *
 
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
@@ -14,10 +15,14 @@ pathcheckcreate(sgresgdb)
 #Get Goode Homolosine spatial reference
 goode_sr = arcpy.SpatialReference(54052)
 
+#Define NoData value
+nodatavalue = -9999
+
 ########################################## MOSAIC TILES ################################################################
 #Create a list of files for each texture and depth
 checkproj = False
 sg_subdirl = defaultdict(list)
+print('Getting list of tiles...')
 for f in getfilelist(sg_outdir, 'tileSG.*tif$'):
     print(f)
     sg_subdirl[os.path.split(f)[0]].append(f)
@@ -29,8 +34,9 @@ tileinterval  = 100
 smalldirdict = {os.path.split(partdepth)[1]: os.path.join(sgsmalldir, os.path.split(partdepth)[1]) for partdepth in sg_subdirl}
 mediumdirdict = {i: os.path.join(sgmediumdir, i) for i in smalldirdict}
 mosaicdict = {lyr:os.path.join(sgresgdb, lyr) for lyr in mediumdirdict}
+formatdict = {lyr:os.path.join(sgresgdb, '{}_format'.format(lyr)) for lyr in mediumdirdict}
 
-if not all([arcpy.Exists(lyr) for lyr in mosaicdict.values()]):
+if not all([arcpy.Exists(lyr) for lyr in formatdict.values()]):
     for partdepth in sg_subdirl:
         print(partdepth)
         partdepthdir = smalldirdict[os.path.split(partdepth)[1]]
@@ -42,10 +48,11 @@ if not all([arcpy.Exists(lyr) for lyr in mosaicdict.values()]):
             outtile= os.path.join(partdepthdir, "mean{1}_{2}.tif".format(os.path.split(partdepth)[1], tilel[0], tilel[1]-1))
             if not arcpy.Exists(outtile):
                 print('Mosaicking {}...'.format(outtile))
-                arcpy.MosaicToNewRaster_management(input_rasters= sg_subdirl[partdepth][tilel[0]:tilel[1]],
-                                                   output_location= os.path.split(outtile)[0],
+                arcpy.MosaicToNewRaster_management(input_rasters=sg_subdirl[partdepth][tilel[0]:tilel[1]],
+                                                   output_location=os.path.split(outtile)[0],
                                                    raster_dataset_name_with_extension= os.path.split(outtile)[1],
-                                                   number_of_bands= 1)
+                                                   number_of_bands=1,
+                                                   pixel_type='16_BIT_SIGNED')
             else:
                 print('{} already exists...'.format(outtile))
 
@@ -68,12 +75,13 @@ if not all([arcpy.Exists(lyr) for lyr in mosaicdict.values()]):
                                                    output_location= os.path.split(outtile)[0],
                                                    raster_dataset_name_with_extension= os.path.split(outtile)[1],
                                                    number_of_bands= 1,
-                                                   mosaic_method='MAXIMUM')
+                                                   mosaic_method='MAXIMUM',
+                                                   pixel_type='16_BIT_SIGNED')
             else:
                 print('{} already exists...'.format(outtile))
 
     #Last remosaicking
-    for dir in mediumdirdict:
+    for dir in mosaicdict:
         tilel = getfilelist(mediumdirdict[dir], '.*[.]tif$')
         outmosaic =mosaicdict[dir]
         if tilel is not None and not arcpy.Exists(outmosaic):
@@ -82,19 +90,21 @@ if not all([arcpy.Exists(lyr) for lyr in mosaicdict.values()]):
                                                output_location=os.path.split(outmosaic)[0],
                                                raster_dataset_name_with_extension=os.path.split(outmosaic)[1],
                                                number_of_bands=1,
-                                               mosaic_method='MAXIMUM')
+                                               mosaic_method='MAXIMUM',
+                                               pixel_type='16_BIT_SIGNED')
 
-#Compute aggregate texture values by weighted average (no need for trapezoidal equation from 2019 onward (v2)) https://gis.stackexchange.com/questions/344070/depths-in-clay-content-map
-mosaicdf = pd.DataFrame.from_dict(mosaicdict, orient='index').reset_index()
-mosaicdf.columns = ['name', 'path']
-mosaicdf_format = pd.concat([mosaicdf,
-                             mosaicdf['name'].str.replace('(cm)|(_mean)', '').str.split("[_]", expand = True)],
+########################################## Compute aggregate texture values by weighted average #########################
+#No need for trapezoidal equation from 2019 onward (v2)) https://gis.stackexchange.com/questions/344070/depths-in-clay-content-map
+formatdf = pd.DataFrame.from_dict(formatdict, orient='index').reset_index()
+formatdf.columns = ['name', 'path']
+formatdf_format = pd.concat([formatdf,
+                             formatdf['name'].str.replace('(cm)|(_mean)', '').str.split("[_]", expand = True)],
                             axis=1).\
     rename(columns={0: "texture", 1: "horizon_top", 2 : "horizon_bottom"}).\
     sort_values(['texture', 'horizon_top'])
 
-mosaicdf_format[["horizon_top", "horizon_bottom"]] = mosaicdf_format[["horizon_top", "horizon_bottom"]].apply(pd.to_numeric)
-mosaicdf_format['thickness'] = mosaicdf_format["horizon_bottom"] - mosaicdf_format["horizon_top"]
+formatdf_format[["horizon_top", "horizon_bottom"]] = formatdf_format[["horizon_top", "horizon_bottom"]].apply(pd.to_numeric)
+formatdf_format['thickness'] = formatdf_format["horizon_bottom"] - formatdf_format["horizon_top"]
 
 def waverage_soilgrids(in_df, mindepth, maxdepth, outdir):
     #Subset horizons to only keep the requested depths
@@ -105,39 +115,73 @@ def waverage_soilgrids(in_df, mindepth, maxdepth, outdir):
         out_average = os.path.join(sgresgdb, '{0}_{1}_{2}_wmean'.format(texture, mindepth, maxdepth))
         if not arcpy.Exists(out_average):
             print('Processing {}...'.format(out_average))
-            Divide(
-                WeightedSum(
-                    WSTable(
-                        [[row['path'], "VALUE", row['thickness']] for index, row in texturegroup.iterrows()])),
-                sum(texturegroup['thickness'])
-            ).save(out_average)
+            wsum = WeightedSum(
+                WSTable(
+                    [[row['path'], "VALUE", row['thickness']] for index, row in texturegroup.iterrows()]))
+            (wsum/sum(texturegroup['thickness'])).save(out_average)
 
-waverage_soilgrids(in_df=mosaicdf_format,
+waverage_soilgrids(in_df=formatdf_format,
                    mindepth=0,
                    maxdepth=100,
                    outdir=sgresgdb)
 
+##########################################Aggregate to HydroSHEDS resolution and extent ##############################
+#Get list of rasters to project
+sg_wmean = getfilelist(sgresgdb, '.*_wmean')
+#The original cell size is exactly twice that of HydroSHEDS, so can project and snap, perform euclidean allocation, and then aggregate
 
-#Compute texture class
+#Re-project and snap (as exactly half the resolution of HydroSHEDS)
+arcpy.env.mask = arcpy.env.extent = hydrotemplate
+for lyr in sg_wmean:
+    outproj = os.path.join(sgresgdb, '{}proj'.format(sg_wmean))
+    if not arcpy.Exists(outproj):
+        print('Processing {}...'.format(outproj))
+        arcpy.ProjectRaster_management(lyr, outproj,
+                                       out_coor_system=hydrotemplate,
+                                       resampling_type='NEAREST',
+                                       cell_size=1/480.0, #From Hengl et al. 2017
+                                       )
+    else:
+        print('{} already exists...'.format(outproj))
 
+    # Euclidean allocation in all NoData areas within 5 km of the coast from HydroSHEDS
+    outnib = os.path.join(sgresgdb, '{}nibble'.format(sg_wmean))
+    if not arcpy.Exists(outnib):
+        print('Processing {}...'.format(outnib))
+        try:
+            arcpy.env.cellsize = outproj
+            mismask = Con((IsNull(outproj) | (outproj == 0)) & (~IsNull(coast_10pxband)), coast_10pxband)
 
+            # Perform euclidean allocation to those pixels
+            Nibble(in_raster=Con(~IsNull(mismask), nodatavalue, outproj),
+                   # where mismask is not NoData (pixels for which outproj is NoData but coast_10pxband has data), assign nodatavalue (provided by user, not NoData), otherwise, keep outproj data (see Nibble tool)
+                   in_mask_raster=outproj,
+                   nibble_values='DATA_ONLY',
+                   nibble_nodata='PRESERVE_NODATA').save(outnib)
 
+        except Exception:
+            print("Exception in user code:")
+            traceback.print_exc(file=sys.stdout)
+            del mismask
+            arcpy.ResetEnvironments()
 
-#Compute aggregate texture values by weighted average (no need for trapezoidal equation from 2019 onward (v2)) https://gis.stackexchange.com/questions/344070/depths-in-clay-content-map
+    else:
+        print('{} already exists...'.format(outnib))
 
+    arcpy.ResetEnvironments()
 
+    #Aggregate pixel size to that of HydroSHEDS
+    arcpy.env.mask = arcpy.env.extent = hydrotemplate
+    outagg = os.path.join(sgresgdb, '{}agg'.format(sg_wmean))
+    if not arcpy.Exists(outagg):
+        print('Processing {}...'.format(outagg))
+        Aggregate(in_raster=outnib,
+                  cell_factor=2,
+                  aggregation_type='MEAN',
+                  extent_handling='EXPAND',
+                  ignore_nodata='DATA')
+    else:
+        print('{} already exists...'.format(outagg))
 
-
-#Check ratio of resolutions
-#Re-project
-#Snap
-#Aggregate and/or resample
-#Run accumulation
-
-
-#Because there is no way to know what is inland vs. sea water, perhaps just re-project to wgs84, resample, and snap.
-#Compute everything while ignoring NoData values
-#Fill in NoData values with -9999 and use these in model rather than excluding these values.
 
 #Compute soil texture class based on soiltexture R package and then compute HYSOGS250m
-
