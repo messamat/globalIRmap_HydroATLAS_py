@@ -1,4 +1,5 @@
 from utility_functions import *
+from format_HydroSHEDS import *
 
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
@@ -27,17 +28,9 @@ wc_outdir = os.path.join(datdir, 'WorldClimv2')
 wcresgdb = os.path.join(resdir, 'worldclimv2.gdb')
 pathcheckcreate(wcresgdb)
 
-hydroresdir = os.path.join(resdir, 'HydroSHEDS')
-pathcheckcreate(hydroresdir)
-hydroresgdb = os.path.join(resdir, 'hydrosheds.gdb')
-pathcheckcreate(hydroresgdb)
-hydrotemplate = os.path.join(datdir, 'Bernhard', 'HydroATLAS', 'HydroATLAS_Geometry', 'Masks',
-                             'hydrosheds_landmask_15s.gdb', 'hys_land_15s')
 climvar = {re.search('(bio|prec)_[0-9]{1,2}', lyr).group():lyr for lyr in getfilelist(wc_outdir,'.*(bio|prec)_[0-9]{1,2}.tif$')}
 
 #Output paths
-hydroregions = os.path.join(hydroresgdb, 'hys_land_regions_15s')
-hydroregions_poly = os.path.join(hydroresgdb,'hys_land_regions_polysimple')
 wc_mismask = os.path.join(wcresgdb, 'wchys_missmask')
 wc_mismask_inspect = os.path.join(wcresgdb,'wchys_missmask_inspect')
 climrsmp = {var:os.path.join(wcresgdb, '{}_resample'.format(var)) for var in climvar}
@@ -50,17 +43,6 @@ hydroresample(in_vardict=climvar, out_vardict=climrsmp, in_hydrotemplate=hydrote
 
 #Perform euclidean allocation for all pixels that are NoData in WorldClim layers but have data in HydroSHEDS land mask
 hydronibble(in_vardict=climrsmp, out_vardict=climnib, in_hydrotemplate=hydrotemplate, nodatavalue=-9999)
-
-# Create HydroSHEDS regions
-if not arcpy.Exists(hydroregions):
-    RegionGroup(in_raster=hydrotemplate,
-                number_neighbors='EIGHT',
-                zone_connectivity='WITHIN',
-                add_link='NO_LINK').save(hydroregions)
-
-# Convert regions to polygons
-if not arcpy.Exists(hydroregions_poly):
-    arcpy.RasterToPolygon_conversion(hydroregions, hydroregions_poly, simplify='SIMPLIFY', raster_field='Value')
 
 #Inspect regions for which cell count hydroregions = wc_mismaskand > 10
 #Create a mismatch raster using hydrosheds land mask regions
@@ -79,5 +61,3 @@ if not arcpy.Exists():
     arcpy.SelectLayerByAttribute_management('polyreg', selection_type='NEW_SELECTION',
                                             where_clause= 'gridcode IN {}'.format(str(tuple(inspectl))))
     arcpy.CopyFeatures_management('polyreg', wc_mismask_inspect)
-
-######### COMPUTE CMI AND THEN AGGREGATE
