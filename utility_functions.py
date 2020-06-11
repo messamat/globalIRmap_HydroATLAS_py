@@ -185,8 +185,9 @@ def project_extent(in_dataset, out_coor_system, out_dataset=None):
     """
     # Create multipoint geometry with extent
     modext = arcpy.Describe(in_dataset).extent
-    modtilebbox = arcpy.Multipoint(
-        arcpy.Array([modext.lowerLeft, modext.lowerRight, modext.upperLeft, modext.upperRight]),
+    modtilebbox = arcpy.Polygon(
+        arcpy.Array([modext.lowerLeft, modext.lowerRight, modext.upperLeft, modext.upperRight,
+                     modext.lowerRight,modext.lowerLeft, modext.upperLeft]),
         arcpy.Describe(in_dataset).spatialReference)
 
     # Project extent
@@ -199,8 +200,8 @@ def project_extent(in_dataset, out_coor_system, out_dataset=None):
         out_dataset=os.path.join(arcpy.env.scratchWorkspace, 'extpoly{}'.format(random.randrange(1000)))
         outext = arcpy.Describe(
             arcpy.Project_management(in_dataset=modtilebbox,
-                                           out_dataset=out_dataset,
-                                           out_coor_system=arcpy.Describe(out_coor_system).spatialReference)).extent
+                                     out_dataset=out_dataset,
+                                     out_coor_system=arcpy.Describe(out_coor_system).spatialReference)).extent
         arcpy.Delete_management(out_dataset)
 
     return(outext)
@@ -452,144 +453,156 @@ def dlfile(url, outpath, outfile=None, ignore_downloadable=False,
     outfile (optional): the output name without file extension, otherwise gets it from URL. If the file is heavy, this may take a while
     fieldnames (optional): fieldnames in output table if downloading plain text"""
 
-    if ignore_downloadable == True:  # check that url is not just html
-        out = format_dlname(url, outpath, outfile)
-    elif is_downloadable(url):
-        out = format_dlname(url, outpath, outfile)
-    else:
-        raise ValueError('File is not downloadable...')
-
     try:
-        # http request
-        if username != None and password != None:
-            # Create a password manager to deal with the 401 reponse that is returned from Earthdata Login
-            password_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
-            password_manager.add_password(None, loginprompter, username, password)
-
-            # Create a cookie jar for storing cookies. This is used to store and return the session cookie given to use by
-            # the data server (otherwise it will just keep sending us back to Earthdata Login to authenticate).
-            # Ideally, we should use a file based cookie jar to preserve cookies between runs. This will make it much more efficient.
-            cookie_jar = CookieJar()
-
-            # Install all the handlers.
-            opener = urllib2.build_opener(
-                urllib2.HTTPBasicAuthHandler(password_manager),
-                # urllib2.HTTPHandler(debuglevel=1),    # Uncomment these two lines to see
-                # urllib2.HTTPSHandler(debuglevel=1),   # details of the requests/responses
-                urllib2.HTTPCookieProcessor(cookie_jar))
-            urllib2.install_opener(opener)
-
-            # Create and submit the request. There are a wide range of exceptions that
-            # can be thrown here, including HTTPError and URLError. These should be
-            # caught and handled.
-
-            request = urllib2.Request(url)
-            f = urllib2.urlopen(request)
-            print "downloading " + url
-        else:
-            f = requests.get(url, allow_redirects=True)
-            print "downloading " + url
-
-        # Open local file for writing
-        if not os.path.exists(out):
-            if 'content-type' in f.headers:
-                if 'csv' in f.headers.get('content-type').lower():  # If csv file
-                    df = pd.read_csv(io.StringIO(f.text))
-                    df.to_csv(out, index=False)
-
-                elif 'tiff' in f.headers.get('content-type').lower():
-                    with open(out, "wb") as local_file:
-                        local_file.write(f.content)
-
-                elif 'x-hdf' in f.headers.get('content-type').lower():
-                    #CHUNK = 16 * 1024
-                    with open(out, 'wb') as local_file:
-                        shutil.copyfileobj(f, local_file)#, CHUNK)
-
-                elif f.headers.get('content-type').lower() == 'text/plain':  # If plain text
-                    dialect = csv.Sniffer().sniff(f.text)
-                    txtF = csv.DictReader(f.text.split('\n'),
-                                          delimiter=dialect.delimiter,
-                                          fieldnames=fieldnames)
-                    with open(out, "wb") as local_file:
-                        writer = csv.DictWriter(local_file, fieldnames=fieldnames)
-                        writer.writeheader()
-                        for row in txtF:
-                            writer.writerow(row)
-
-                elif f.headers.get('content-type').lower() == 'application/x-gzip':
-                    outunzip = os.path.splitext(out)[0]
-
-                    # Very inelegant. But trying to download and decompress in memory always messes up files
-                    response = requests.get(url, stream=True)
-                    if response.status_code == 200:
-                        with open(out, 'wb') as f:
-                            f.write(response.raw.read())
-                    with gzip.GzipFile(out, 'rb') as input:
-                        print('Unzipping {0} to {1}'.format(out, outunzip))
-                        s = input.read()
-                        with open(outunzip, 'wb') as output:
-                            output.write(s)
-
-                elif f.headers.get('content-type').lower() == 'application/zip':
-                    with open(out, "wb") as local_file:
-                        local_file.write(f.read())
-                    # Unzip downloaded file
-                    try:
-                        unzip(out)
-                    except:
-                        z = zipfile.ZipFile(io.BytesIO(f.content))
-                        if isinstance(z, zipfile.ZipFile):
-                            z.extractall(os.path.split(out)[0])
-
-                elif f.headers.get('content-type').lower() == 'application/javascript':
-                    with open(out, "w") as local_file:
-                        for line in f.read():
-                            # write line to output file
-                            local_file.write(line)
-
-            elif os.path.splitext(url)[1] == '.gz':
-                outunzip = os.path.splitext(out)[0]
-                if not os.path.exists(outunzip):
-                    # Very inelegant. But trying to download and decompress in memory always messes up files
-                    response = requests.get(url, stream=True)
-                    if response.status_code == 200:
-                        with open(out, 'wb') as f:
-                            f.write(response.raw.read())
-                    with gzip.GzipFile(out, 'rb') as input:
-                        print('Unzipping {0} to {1}'.format(out, outunzip))
-                        s = input.read()
-                        with open(outunzip, 'wb') as output:
-                            output.write(s)
+        if is_downloadable(url) or ignore_downloadable==True:  # check that url is not just html
+            # Get output file name
+            if outfile is None:
+                outfile = get_filename_from_cd(url)
+                if outfile is not None:
+                    out = os.path.join(outpath, re.sub("""('|")""",'', outfile))
                 else:
-                    print('{} already exists...'.format(outunzip))
+                    out = os.path.join(outpath, os.path.split(url)[1])
+            else:
+                if len(os.path.splitext(url)[1]) > 0:
+                    if os.path.splitext(url)[1]== os.path.splitext(outfile)[1]:
+                        out = os.path.join(outpath, outfile)
+                    else:
+                        out = os.path.join(outpath, "{0}{1}".format(outfile + os.path.splitext(url)[1]))
+                else:
+                    out = os.path.join(outpath, outfile)
+            del outfile
 
+            # http request
+            if username != None and password != None:
+                # Create a password manager to deal with the 401 reponse that is returned from Earthdata Login
+                password_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
+                password_manager.add_password(None, loginprompter, username, password)
 
-            else:  # Otherwise, just try reading
-                try:  # Try writing to local file
-                    with open(out, "wb") as local_file:
-                        local_file.write(f.read())
-                    # Unzip downloaded file
-                    try:
-                        unzip(out + '.zip')
-                    except:
-                        z = zipfile.ZipFile(io.BytesIO(f.content))
-                        if isinstance(z, zipfile.ZipFile):
-                            z.extractall(os.path.split(out)[0])
-                except Exception:
-                    os.remove(out)
-                    if os.path.splitext(url)[1] == '.zip':  # If fails and is zip, directly download zip in memory
-                        print('Try downloading zip in memory...')
-                        z = zipfile.ZipFile(io.BytesIO(f.content))
+                # Create a cookie jar for storing cookies. This is used to store and return the session cookie given to use by
+                # the data server (otherwise it will just keep sending us back to Earthdata Login to authenticate).
+                # Ideally, we should use a file based cookie jar to preserve cookies between runs. This will make it much more efficient.
+                cookie_jar = CookieJar()
 
+                # Install all the handlers.
+                opener = urllib2.build_opener(
+                    urllib2.HTTPBasicAuthHandler(password_manager),
+                    # urllib2.HTTPHandler(debuglevel=1),    # Uncomment these two lines to see
+                    # urllib2.HTTPSHandler(debuglevel=1),   # details of the requests/responses
+                    urllib2.HTTPCookieProcessor(cookie_jar))
+                urllib2.install_opener(opener)
+
+                # Create and submit the request. There are a wide range of exceptions that
+                # can be thrown here, including HTTPError and URLError. These should be
+                # caught and handled.
+
+                request = urllib2.Request(url)
+                f = urllib2.urlopen(request)
+                print "downloading " + url
+            else:
+                f = requests.get(url, allow_redirects=True)
+                print "downloading " + url
+
+            # Open local file for writing
             if not os.path.exists(out):
-                raise Warning('No error was generated but {} was not downloaded. '
-                              'Check that file type is included '
-                              'in function options'.format(out))
+                if 'content-type' in f.headers:
+                    if 'csv' in f.headers.get('content-type').lower():  # If csv file
+                        df = pd.read_csv(io.StringIO(f.text))
+                        df.to_csv(out, index=False)
 
+                    elif 'tiff' in f.headers.get('content-type').lower():
+                        with open(out, "wb") as local_file:
+                            local_file.write(f.content)
+
+                    elif 'x-hdf' in f.headers.get('content-type').lower():
+                        #CHUNK = 16 * 1024
+                        with open(out, 'wb') as local_file:
+                            shutil.copyfileobj(f, local_file)#, CHUNK)
+
+                    elif f.headers.get('content-type').lower() == 'text/plain':  # If plain text
+                        dialect = csv.Sniffer().sniff(f.text)
+                        txtF = csv.DictReader(f.text.split('\n'),
+                                              delimiter=dialect.delimiter,
+                                              fieldnames=fieldnames)
+                        with open(out, "wb") as local_file:
+                            writer = csv.DictWriter(local_file, fieldnames=fieldnames)
+                            writer.writeheader()
+                            for row in txtF:
+                                writer.writerow(row)
+
+                    elif f.headers.get('content-type').lower() == 'application/x-gzip':
+                        outunzip = os.path.splitext(out)[0]
+
+                        # Very inelegant. But trying to download and decompress in memory always messes up files
+                        response = requests.get(url, stream=True)
+                        if response.status_code == 200:
+                            with open(out, 'wb') as f:
+                                f.write(response.raw.read())
+                        with gzip.GzipFile(out, 'rb') as input:
+                            print('Unzipping {0} to {1}'.format(out, outunzip))
+                            s = input.read()
+                            with open(outunzip, 'wb') as output:
+                                output.write(s)
+
+                    elif f.headers.get('content-type').lower() == 'application/zip':
+                        with open(out, "wb") as local_file:
+                            local_file.write(f.read())
+                        # Unzip downloaded file
+                        try:
+                            unzip(out)
+                        except:
+                            z = zipfile.ZipFile(io.BytesIO(f.content))
+                            if isinstance(z, zipfile.ZipFile):
+                                z.extractall(os.path.split(out)[0])
+
+                    elif f.headers.get('content-type').lower() == 'application/javascript':
+                        with open(out, "w") as local_file:
+                            for line in f.read():
+                                # write line to output file
+                                local_file.write(line)
+
+                elif os.path.splitext(url)[1] == '.gz':
+                    outunzip = os.path.splitext(out)[0]
+                    if not os.path.exists(outunzip):
+                        # Very inelegant. But trying to download and decompress in memory always messes up files
+                        response = requests.get(url, stream=True)
+                        if response.status_code == 200:
+                            with open(out, 'wb') as f:
+                                f.write(response.raw.read())
+                        with gzip.GzipFile(out, 'rb') as input:
+                            print('Unzipping {0} to {1}'.format(out, outunzip))
+                            s = input.read()
+                            with open(outunzip, 'wb') as output:
+                                output.write(s)
+                    else:
+                        print('{} already exists...'.format(outunzip))
+
+
+                else:  # Otherwise, just try reading
+                    try:  # Try writing to local file
+                        with open(out, "wb") as local_file:
+                            local_file.write(f.read())
+                        # Unzip downloaded file
+                        try:
+                            unzip(out + '.zip')
+                        except:
+                            z = zipfile.ZipFile(io.BytesIO(f.content))
+                            if isinstance(z, zipfile.ZipFile):
+                                z.extractall(os.path.split(out)[0])
+                    except Exception:
+                        os.remove(out)
+                        if os.path.splitext(url)[1] == '.zip':  # If fails and is zip, directly download zip in memory
+                            print('Try downloading zip in memory...')
+                            z = zipfile.ZipFile(io.BytesIO(f.content))
+
+                if not os.path.exists(out):
+                    raise Warning('No error was generated but {} was not downloaded. '
+                                  'Check that file type is included '
+                                  'in function options'.format(out))
+
+            else:
+                print('{} already exists...'.format(out))
         else:
-            print('{} already exists...'.format(out))
-
+            print('File not downloadable...')
         return(out)
 
     # handle errors
@@ -599,7 +612,6 @@ def dlfile(url, outpath, outfile=None, ignore_downloadable=False,
         traceback.print_exc()
         if os.path.exists(out):
             os.remove(out)
-
 
 def APIdownload(baseURL, workspace, basename, itersize, IDlist, geometry):
     IDrange = range(IDlist[0], IDlist[1], itersize)
