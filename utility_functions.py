@@ -102,28 +102,31 @@ def hydronibble(in_vardict, out_vardict, in_hydrotemplate, nodatavalue=-9999):
 
     # Perform euclidean allocation to HydroSHEDS land mask pixels with no WorldClim data
     for var in in_vardict:
-        outnib = out_vardict[var]
-        if not arcpy.Exists(outnib):
-            print('Processing {}...'.format(outnib))
-            try:
-                mismask = Con((IsNull(in_vardict[var])) & (~IsNull(in_hydrotemplate)), in_hydrotemplate)
+        if arcpy.Exists(in_vardict[var]):
+            outnib = out_vardict[var]
+            if not arcpy.Exists(outnib):
+                print('Processing {}...'.format(outnib))
+                try:
+                    mismask = Con((IsNull(in_vardict[var])) & (~IsNull(in_hydrotemplate)), in_hydrotemplate)
 
-                #Perform euclidean allocation to those pixels
-                Nibble(in_raster=Con(~IsNull(mismask), nodatavalue, in_vardict[var]), #where mismask is not NoData (pixels for which var is NoData but hydrotemplate has data), assign nodatavalue (provided by user, not NoData), otherwise, keep var data (see Nibble tool)
-                       in_mask_raster=in_vardict[var],
-                       nibble_values='DATA_ONLY',
-                       nibble_nodata='PRESERVE_NODATA').save(outnib)
+                    #Perform euclidean allocation to those pixels
+                    Nibble(in_raster=Con(~IsNull(mismask), nodatavalue, in_vardict[var]), #where mismask is not NoData (pixels for which var is NoData but hydrotemplate has data), assign nodatavalue (provided by user, not NoData), otherwise, keep var data (see Nibble tool)
+                           in_mask_raster=in_vardict[var],
+                           nibble_values='DATA_ONLY',
+                           nibble_nodata='PRESERVE_NODATA').save(outnib)
 
-                del mismask
+                    del mismask
 
-            except Exception:
-                print("Exception in user code:")
-                traceback.print_exc(file=sys.stdout)
-                del mismask
-                arcpy.ResetEnvironments()
+                except Exception:
+                    print("Exception in user code:")
+                    traceback.print_exc(file=sys.stdout)
+                    del mismask
+                    arcpy.ResetEnvironments()
 
+            else:
+                print('{} already exists...'.format(outnib))
         else:
-            print('{} already exists...'.format(outnib))
+            print('Input - {} does not exists...'.format(in_vardict[var]))
 
     arcpy.ResetEnvironments()
 
