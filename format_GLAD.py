@@ -24,7 +24,8 @@ scratchgdb = os.path.join(scratchdir, 'scratch.gdb')
 pathcheckcreate(scratchgdb)
 arcpy.env.scratchWorkspace = scratchgdb
 
-hydrotemplate = os.path.join(resdir, 'HydroSHEDS', 'mask.gdb', 'af_mask_15s')  # Grab HydroSHEDS layer for one continent as template
+hydrotemplate = os.path.join(datdir, 'Bernhard', 'HydroATLAS' ,'HydroATLAS_Geometry', 'Masks',
+                             'hydrosheds_landmask_15s.gdb', 'hys_land_15s') # Grab HydroSHEDS layer for one continent as template
 hydrolakes = os.path.join(datdir, 'hydrolakes', 'HydroLAKES_polys_v10.gdb', 'HydroLAKES_polys_v10')
 glad_dir = os.path.join(datdir, 'GLAD')
 alos_dir = os.path.join(datdir, 'ALOS')
@@ -40,6 +41,7 @@ pathcheckcreate(mod44w_resgdb)
 #0: NoData, 1: Land, 2: Permanent water, 3: Stable seasonal, 4: Water gain, 5: Water loss
 #6: Dry period, 7: Wet period, 8: High frequency, 10: Probable land, 11: Probable water, 12: Sparse data - exclude
 
+########################################################################################################################
 #Get list of tiiles for raw GLAD tiles, mod44w (MODIS sea mask) and ALOS (DEM)
 print('Getting tile lists for GLAD, MODIS, and ALOS...')
 rawtilelist = getfilelist(glad_dir, 'class99_19.*[.]tif$')
@@ -282,22 +284,7 @@ for i in mod44w_tilelist:
         #Add extent to dictionary as value with MODIS tile id as the key
         mod44w_wgsextdict[i] = arcpy.Describe(outmodext).extent
 
-
-#---------------------------- Prep for GLAD matching to HydroSHEDS -----------------------------------------------------
-#Check aggregation ratio
-cellsize_ratio = arcpy.Describe(hydrotemplate).meanCellWidth / arcpy.Describe(rawtilelist[0]).meanCellWidth
-print('Aggregating GLAD by cell size ratio of {0} would lead to a difference in resolution of {1} mm'.format(
-    math.floor(cellsize_ratio),
-    11100000 * (arcpy.Describe(hydrotemplate).meanCellWidth - math.floor(cellsize_ratio) * arcpy.Describe(
-        rawtilelist[0]).meanCellWidth)
-))
-# Make sure that the cell size ratio is a multiple of the number of rows and columns in DEM tiles to not have edge effects
-float(arcpy.Describe(rawtilelist[0]).height) / math.floor(cellsize_ratio)
-float(arcpy.Describe(rawtilelist[0]).width) / math.floor(cellsize_ratio)
-
-hysogagg_dict = {}
-
-######################################## Iterate through GLAD tiles to pre-process #####################################
+######################################## Iterate through GLAD tiles to generate sea mask ###############################
 mod44w_mosaiclist = []
 
 #For each GLAD 10 degree by 10 degree tile
@@ -391,39 +378,143 @@ for gladtile in rawtilelist:
         print('{} already exists...'.format(outseafinal))
 
 #---------------------------- Aggregate GLAD to match HydroSHEDS -----------------------------------------------------
-print(tile)
-hysogagg_dict[gladtileid] = os.path.join(gladresgdb, '{0}_agg'.format(os.path.splitext(os.path.split(gladtile)[1])[0]))
+#Check aggregation ratio
+cellsize_ratio = arcpy.Describe(hydrotemplate).meanCellWidth / arcpy.Describe(rawtilelist[0]).meanCellWidth
+print('Aggregating GLAD by cell size ratio of {0} would lead to a difference in resolution of {1} mm'.format(
+    math.floor(cellsize_ratio),
+    11100000 * (arcpy.Describe(hydrotemplate).meanCellWidth - math.floor(cellsize_ratio) * arcpy.Describe(
+        rawtilelist[0]).meanCellWidth)
+))
+# Make sure that the cell size ratio is a multiple of the number of rows and columns in DEM tiles to not have edge effects
+float(arcpy.Describe(rawtilelist[0]).height) / math.floor(cellsize_ratio)
+float(arcpy.Describe(rawtilelist[0]).width) / math.floor(cellsize_ratio)
 
-# Divide and aggregate each band
-if compsr(gladtile, hydrotemplate):  # Make sure that share spatial reference with HydroSHEDS
-    print('Divide into {1} bands and aggregate by rounded value of {2}'.format(
-        tile, len(gladvals), math.floor(cellsize_ratio)))
-    arcpy.CompositeBands_management(in_rasters=catdivagg_list(inras=tile,
-                                                              vals=gladvals,
-                                                              exclude_list=[0, 12],
-                                                              aggratio=math.floor(cellsize_ratio)),
-                                    out_raster=hysogagg_dict[gladtileid])
+hysogagg_dict = {}
+gladvalsdict = defaultdict(list)
 
+for gladtile in rawtilelist:
+    gladtileid = 'glad{}'.format(
+        re.sub('(^.*class99_1[89]_)|([.]tif)', '', gladtile))  # Unique identifier for glad tile based on coordinates
+    outseafinal = os.path.join(gladresgdb, '{}_seamask'.format(gladtileid))
 
-######################################## Mosaick GLAD tiles by continent and resample ##################################
-hydromaskgdb = os.path.join(resdir, 'HydroSHEDS', 'mask.gdb')
-hydromask_dict = {os.path.split(i)[1][0:2]: i for i in getfilelist(hydromaskgdb, '[a-z]{2}_mask_15s')}
+    hysogagg_dict[gladtileid] = os.path.join(gladresgdb,
+                                             '{0}_agg'.format(os.path.splitext(os.path.split(gladtile)[1])[0]))
 
-#Mosaick tiles
-glad500 = {}
-for cont in hydromask_dict:
-    glad_mosaic = os.path.join(gladresgdb, 'glad_{}'.format(cont))
-    gladtiles_cont = get_inters_tiles(ref_extent=arcpy.Describe(hydromask_dict).extent,
-                                      tileiterator=rawtilelist)#hysogagg_dict.values, containsonly=False)
-    arcpy.MosaicToNewRaster_management(input_rasters=gladtiles_cont,
-                                       output_location=os.path.split(glad_mosaic)[0],
-                                       raster_dataset_name_with_extension=os.path.split(glad_mosaic)[1],
-                                       number_of_bands=1,
-                                       mosaic_method='FIRST')
+    if arcpy.Exists(outseafinal):
+        tiletoagg = outseafinal
+    else:
+        tiletoagg = gladtile
 
-    glad500[cont] = os.path.join(gladresgdb, 'glad_{}_500m'.format(cont))
-    if not arcpy.Exists(glad500[cont]):
-        print("Resampling to {}...".format(glad500[cont]))
+    print('Getting GLAD tile values')
+    gladvalsdict[gladtileid] = list({row[0] for row in arcpy.da.SearchCursor(tiletoagg, 'Value')})
+    vals = [v for v in gladvalsdict[gladtileid] if v not in [0, 12]]
+
+    if not all(arcpy.Exists(os.path.join(gladresgdb, '{0}{1}'.format(hysogagg_dict[gladtileid], v))) for v in vals):
+        # Divide and aggregate each band
+        if compsr(tiletoagg, hydrotemplate):  # Make sure that share spatial reference with HydroSHEDS
+            print('Divide {0} into {1} bands and aggregate by rounded value of {2}'.format(
+                tiletoagg, len(vals), math.floor(cellsize_ratio)))
+            catdiv_list = catdivagg_list(inras=tiletoagg,
+                                         vals=gladvalsdict[gladtileid],
+                                         exclude_list=[0, 12],
+                                         aggratio=math.floor(cellsize_ratio))
+
+            vals = [v for v in gladvalsdict[gladtileid] if v not in [0, 12]]
+            for band in xrange(0, len(vals)):
+                outband = os.path.join(gladresgdb, '{0}{1}'.format(hysogagg_dict[gladtileid], vals[band]))
+                print('Saving {}'.format(outband))
+                catdiv_list[band].save(outband)
+    else:
+        print('Bands have already been divided and aggregated for {0}'.format(gladtileid))
+
+######################################## Mosaick GLAD tiles and resample ##################################
+
+#Mosaick tiles for each value
+outmosadict = {}
+for val in xrange(1,12):
+    tileref = getfilelist(gladresgdb, '^class99_19_.*_agg{0}$'.format(val))
+    outmosadict[val] = os.path.join(gladresgdb, 'class99_19_agg{0}'.format(val))
+    if not arcpy.Exists(outmosadict[val]):
+        print('Processing {}...'.format(outmosadict[val]))
+        arcpy.MosaicToNewRaster_management(tileref,
+                                           output_location= os.path.split(outmosadict[val])[0],
+                                           raster_dataset_name_with_extension= os.path.split(outmosadict[val])[1],
+                                           pixel_type= '16_BIT_UNSIGNED',
+                                           number_of_bands=1)
+
+outrspdict = {}
+for val in outmosadict:
+    outrspdict[val] = os.path.join(gladresgdb, 'class99_19_rsp{0}'.format(val))
+    if not arcpy.Exists(outrspdict[val]):
+        print("Resampling to {}...".format(outrspdict[val]))
         # Resample with nearest cell assignment
-        arcpy.env.extent = arcpy.env.snapRaster = arcpy.env.cellSize = arcpy.env.mask = hydromask_dict[cont]
-        arcpy.Resample_management(glad_mosaic, glad500[cont], cell_size=arcpy.env.cellSize, resampling_type='NEAREST')
+        arcpy.env.extent = arcpy.env.snapRaster = arcpy.env.cellSize = arcpy.env.mask = hydrotemplate
+        arcpy.Resample_management(in_raster=outmosadict[val],
+                                  out_raster=outrspdict[val],
+                                  cell_size=arcpy.env.cellSize,
+                                  resampling_type='NEAREST')
+
+#Compute statistics
+#GLAD values mean the following
+#0: NoData, 1: Land, 2: Permanent water, 3: Stable seasonal, 4: Water gain, 5: Water loss
+#6: Dry period, 7: Wet period, 8: High frequency, 10: Probable land, 11: Probable water, 12: Sparse data - exclude
+
+datapix = os.path.join(gladresgdb, 'class99_19_datapix')
+freshpix = os.path.join(gladresgdb, 'class99_19_freshpix')
+freshperc = os.path.join(gladresgdb, 'class99_19_freshperc')
+waterpix = os.path.join(gladresgdb, 'class99_19_waterpix')
+permperc = os.path.join(gladresgdb, 'class99_19_permperc')
+seasonalperc = os.path.join(gladresgdb, 'class99_19_seasonalperc')
+lossperc = os.path.join(gladresgdb, 'class99_19_lossperc')
+dryperiodperc = os.path.join(gladresgdb, 'class99_19_dryperiodperc')
+wetperiodperc = os.path.join(gladresgdb, 'class99_19_wetperiodperc')
+hfreqperc = os.path.join(gladresgdb, 'class99_19_hfreqperc')
+
+#Number of Non-NoData pixels
+if not arcpy.Exists(datapix):
+    print('Computing {}'.format(datapix))
+    (sum([Con(IsNull(Raster(outrspdict[i])), 0, Raster(outrspdict[i])) for i in outrspdict])).save(datapix)
+
+
+#Number of freshwater pixels (2-8 and 11)
+if not arcpy.Exists(freshpix):
+    print('Computing {}'.format(freshpix))
+    (sum([Con(IsNull(Raster(outrspdict[i])), 0, Raster(outrspdict[i])) for i in xrange(1, 12) if i not in [1, 9, 10]])).\
+        save(freshpix)
+
+#Number of freshwater pixels/Non-Nodata pixels (percentage integer)
+if not arcpy.Exists(freshperc):
+    print('Computing {}'.format(freshperc))
+    Con(datapix > 0,
+        Int(0.5 + 100 * Raster(freshpix) / Float(Raster(datapix)))).save(freshperc)
+
+#Number of water pixels (# freshwater pixels + 9)
+if not arcpy.Exists(waterpix):
+    print('Computing {}'.format(waterpix))
+    (Raster(freshpix) + Con(IsNull(Raster(outrspdict[9])), 0, Raster(outrspdict[9]))).save(waterpix)
+
+
+#### Compute water dynamics stats #####
+def comp_dynaperc(in_dyna, in_freshpix, out_ras):
+    Con(Raster(in_freshpix) > 0,
+        Int(0.5 + (100 *
+                   Con(IsNull(Raster(in_dyna)), 0, Raster(in_dyna)) / Float(Raster(in_freshpix))),
+            )
+        ).save(out_ras)
+
+#Permanent + probable water
+Con(Raster(freshpix) > 0,
+    Int(0.5 + 100 * ((Con(IsNull(Raster(outrspdict[2])), 0, Raster(outrspdict[2])) +
+                      Con(IsNull(Raster(outrspdict[11])), 0, Raster(outrspdict[11]))) / Float(Raster(freshpix))),
+        )
+    ).save(permperc)
+
+comp_dynaperc(in_dyna=outrspdict[3], in_freshpix=freshpix, out_ras=seasonalperc) #Stable seasonal
+comp_dynaperc(in_dyna=outrspdict[5], in_freshpix=freshpix, out_ras=lossperc) #Water loss
+comp_dynaperc(in_dyna=outrspdict[6], in_freshpix=freshpix, out_ras=dryperiodperc) #Dry period
+comp_dynaperc(in_dyna=outrspdict[7], in_freshpix=freshpix, out_ras=wetperiodperc) #Wet period
+comp_dynaperc(in_dyna=outrspdict[8], in_freshpix=freshpix, out_ras=hfreqperc) #High frequency
+
+
+
+
