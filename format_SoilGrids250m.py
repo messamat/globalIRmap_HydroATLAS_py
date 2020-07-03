@@ -3,6 +3,7 @@ from format_HydroSHEDS import *
 
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
+arcpy.env.scratchWorkspace = os.path.join(rootdir, 'scratch', 'scratch.gdb')
 
 sg_outdir = os.path.join(datdir, 'SOILGRIDS250')
 sgsmalldir = os.path.join(resdir,'soilsgrid250_smalltiles')
@@ -95,7 +96,7 @@ if not all([arcpy.Exists(lyr) for lyr in formatdict.values()]):
 
 ########################################## Compute aggregate texture values by weighted average #########################
 #No need for trapezoidal equation from 2019 onward (v2)) https://gis.stackexchange.com/questions/344070/depths-in-clay-content-map
-formatdf = pd.DataFrame.from_dict(formatdict, orient='index').reset_index()
+formatdf = pd.DataFrame.from_dict(mosaicdict, orient='index').reset_index()
 formatdf.columns = ['name', 'path']
 formatdf_format = pd.concat([formatdf,
                              formatdf['name'].str.replace('(cm)|(_mean)', '').str.split("[_]", expand = True)],
@@ -112,13 +113,22 @@ def waverage_soilgrids(in_df, mindepth, maxdepth, outdir):
         sort_values(['horizon_top'])
 
     for texture, texturegroup in df_sub.groupby('texture'):
+        out_sum = os.path.join(sgresgdb, '{0}_{1}_{2}_wsum'.format(texture, mindepth, maxdepth))
         out_average = os.path.join(sgresgdb, '{0}_{1}_{2}_wmean'.format(texture, mindepth, maxdepth))
+
+        # for index, row in texturegroup.iterrows():
+        #     if not Raster(row['path']).hasRAT
         if not arcpy.Exists(out_average):
             print('Processing {}...'.format(out_average))
-            wsum = WeightedSum(
-                WSTable(
-                    [[row['path'], "VALUE", row['thickness']] for index, row in texturegroup.iterrows()]))
-            (wsum/sum(texturegroup['thickness'])).save(out_average)
+
+            if not arcpy.Exists(out_sum):
+                WeightedSum(
+                    WSTable(
+                        [[row['path'], "VALUE", row['thickness']] for index, row in texturegroup.iterrows()])).save(out_sum)
+
+            Int(Divide(Raster(out_sum), int(sum(texturegroup['thickness'])))+0.5).save(out_average) #Use eval? #isinstance(pd.Series)
+        else:
+            print('{} already exists...').format(out_average)
 
 waverage_soilgrids(in_df=formatdf_format,
                    mindepth=0,
@@ -127,13 +137,13 @@ waverage_soilgrids(in_df=formatdf_format,
 
 ##########################################Aggregate to HydroSHEDS resolution and extent ##############################
 #Get list of rasters to project
-sg_wmean = getfilelist(sgresgdb, '.*_wmean')
+sg_wmean = getfilelist(sgresgdb, '.*_wmean$')
 #The original cell size is exactly twice that of HydroSHEDS, so can project and snap, perform euclidean allocation, and then aggregate
 
 #Re-project and snap (as exactly half the resolution of HydroSHEDS)
 arcpy.env.mask = arcpy.env.extent = hydrotemplate
 for lyr in sg_wmean:
-    outproj = os.path.join(sgresgdb, '{}proj'.format(sg_wmean))
+    outproj = os.path.join(sgresgdb, '{}proj'.format(lyr))
     if not arcpy.Exists(outproj):
         print('Processing {}...'.format(outproj))
         arcpy.ProjectRaster_management(lyr, outproj,
@@ -145,15 +155,17 @@ for lyr in sg_wmean:
         print('{} already exists...'.format(outproj))
 
     # Euclidean allocation in all NoData areas within 5 km of the coast from HydroSHEDS
-    outnib = os.path.join(sgresgdb, '{}nibble'.format(sg_wmean))
+    outnib = os.path.join(sgresgdb, '{}nibble2'.format(lyr))
     if not arcpy.Exists(outnib):
         print('Processing {}...'.format(outnib))
         try:
-            arcpy.env.cellsize = outproj
-            mismask = Con((IsNull(outproj) | (outproj == 0)) & (~IsNull(coast_10pxband)), coast_10pxband)
+            arcpy.env.cellSize = arcpy.env.snapRaster = outproj
+            outmismask = os.path.join(sgresgdb, '{}mismask'.format(lyr))
+            Con((IsNull(outproj) | (outproj == 0)) & (~IsNull(coast_10pxband)),
+                coast_10pxband).save(outmismask)
 
             # Perform euclidean allocation to those pixels
-            Nibble(in_raster=Con(~IsNull(mismask), nodatavalue, outproj),
+            Nibble(in_raster=Con(~IsNull(Raster(outmismask)), nodatavalue, outproj),
                    # where mismask is not NoData (pixels for which outproj is NoData but coast_10pxband has data), assign nodatavalue (provided by user, not NoData), otherwise, keep outproj data (see Nibble tool)
                    in_mask_raster=outproj,
                    nibble_values='DATA_ONLY',
@@ -162,7 +174,6 @@ for lyr in sg_wmean:
         except Exception:
             print("Exception in user code:")
             traceback.print_exc(file=sys.stdout)
-            del mismask
             arcpy.ResetEnvironments()
 
     else:
@@ -172,16 +183,15 @@ for lyr in sg_wmean:
 
     #Aggregate pixel size to that of HydroSHEDS
     arcpy.env.mask = arcpy.env.extent = hydrotemplate
-    outagg = os.path.join(sgresgdb, '{}agg'.format(sg_wmean))
+    outagg = os.path.join(sgresgdb, '{}agg2'.format(lyr))
     if not arcpy.Exists(outagg):
         print('Processing {}...'.format(outagg))
         Aggregate(in_raster=outnib,
                   cell_factor=2,
                   aggregation_type='MEAN',
                   extent_handling='EXPAND',
-                  ignore_nodata='DATA')
+                  ignore_nodata='DATA').save(outagg)
     else:
         print('{} already exists...'.format(outagg))
-
 
 #Compute soil texture class based on soiltexture R package and then compute HYSOGS250m
