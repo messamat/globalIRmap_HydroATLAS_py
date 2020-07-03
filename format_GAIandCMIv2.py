@@ -21,25 +21,24 @@ et0var.update(cmidict)
 et0_mismask = os.path.join(et0resgdb, 'et0hys_missmask')
 et0rsmp = {var:os.path.join(et0resgdb, '{}_resample'.format(var)) for var in et0var}
 et0template = et0rsmp['et0_01']
-et0nib = {var:os.path.join(et0resgdb, '{}_nibble'.format(var)) for var in et0var}
+et0nib = {var:os.path.join(et0resgdb, '{}_nibble2'.format(var)) for var in et0var}
 
 #Compute CMI
 #CMI = (P / PET) - 1 when P < PET] or [CMI = 1 - (PET / P) when P >= PET
 for mnth in xrange(1, 13):
     print(mnth)
-    Con(Raster(etdict[mnth]) > Raster(precdict[mnth]),
-        (Raster(precdict[mnth]) / Raster(etdict[mnth])) - 1,
-        1 - (Raster(etdict[mnth]) / Raster(precdict[mnth]))
-        ).save(cmidict["cmi_{}".format(str(mnth).zfill(2))])
+    if not arcpy.Exists(cmidict["cmi_{}".format(str(mnth).zfill(2))]):
+        Int(0.5 + 100 *
+            Con(Raster(etdict[mnth]) > Raster(precdict[mnth]),
+                (Raster(precdict[mnth]) / Float(Raster(etdict[mnth]))) - 1,
+                1 - (Raster(etdict[mnth]) / Float(Raster(precdict[mnth])))
+                )
+            ).save(cmidict["cmi_{}".format(str(mnth).zfill(2))])
 
 #Resample to match HydroSHEDS land mask using nearest neighbors
 hydroresample(in_vardict=cmidict, out_vardict=et0rsmp, in_hydrotemplate=hydrotemplate, resampling_type='NEAREST')
 
-####### STILL NEED TO RUN THIS #################
 #Perform euclidean allocation for all pixels that are NoData in WorldClim layers but have data in HydroSHEDS land mask
 hydronibble(in_vardict=et0rsmp, out_vardict=et0nib, in_hydrotemplate=hydrotemplate, nodatavalue=-9999)
-
-
-
 
 #No need to inspect as same mask as WorldClimv2 (see format_WorldClim2)
