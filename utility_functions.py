@@ -289,7 +289,9 @@ def divbb(bbox, res, divratio):
 #Get all files in a ArcGIS workspace (file or personal GDB)
 def getwkspfiles(dir, repattern=None):
     arcpy.env.workspace = dir
-    filenames_list = (arcpy.ListDatasets() or []) + (arcpy.ListTables() or [])  # Either LisDatsets or ListTables may return None so need to create empty list alternative
+    filenames_list = (arcpy.ListDatasets() or []) +\
+                     (arcpy.ListTables() or []) +\
+                     (arcpy.ListFeatureClasses() or []) # Either LisDatsets or ListTables may return None so need to create empty list alternative
     if not repattern == None:
         filenames_list = [os.path.join(dir, filen)
                           for filen in filenames_list if re.search(repattern, filen)]

@@ -36,7 +36,7 @@ for mnth in xrange(1, 13):
             ).save(cmidict["cmi_{}".format(str(mnth).zfill(2))])
 
 #Resample to match HydroSHEDS land mask using nearest neighbors
-hydroresample(in_vardict=cmidict, out_vardict=et0rsmp, in_hydrotemplate=hydrotemplate, resampling_type='NEAREST')
+hydroresample(in_vardict=et0var, out_vardict=et0rsmp, in_hydrotemplate=hydrotemplate, resampling_type='NEAREST')
 
 #Perform euclidean allocation for all pixels that are NoData in WorldClim layers but have data in HydroSHEDS land mask
 hydronibble(in_vardict=et0rsmp, out_vardict=et0nib, in_hydrotemplate=hydrotemplate, nodatavalue=-9999)

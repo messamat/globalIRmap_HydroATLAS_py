@@ -74,7 +74,8 @@ for wc_valuegrid in worldclim_value:
                          weight_grid = weightras,
                          upland_grid = uplandras,
                          scratch_dir = os.path.join(resdir, 'scratch.gdb'),
-                         out_dir = os.path.join(resdir, 'worldclimv2.gdb'))
+                         out_dir = os.path.join(resdir, 'worldclimv2.gdb'),
+                         shiftval=100)
 
 
 ############################ Global Aridity Index and CMI v2 ###########################################################
@@ -85,24 +86,75 @@ cmidict = {"cmi_{}".format(str(mnth).zfill(2)): os.path.join(et0resgdb, 'cmi_{}'
 et0var.update(cmidict)
 et0nib = {var:os.path.join(et0resgdb, '{}_nibble2'.format(var)) for var in et0var}
 
-for etcmi_valuegrid in cmidict:
-    hydroUplandWeighting(value_grid = etcmi_valuegrid,
-                         direction_grid = directionras,
-                         weight_grid = weightras,
-                         upland_grid = uplandras,
-                         scratch_dir = os.path.join(resdir, 'scratch.gdb'),
-                         out_dir = et0resgdb,
-                         shiftval = 100)
+for etcmi_valuegrid in et0nib.values():
+    hydroUplandWeighting(value_grid=etcmi_valuegrid,
+                         direction_grid=directionras,
+                         weight_grid=weightras,
+                         upland_grid=uplandras,
+                         scratch_dir=os.path.join(resdir, 'scratch.gdb'),
+                         out_dir=et0resgdb,
+                         shiftval=0)
 
 
 ############################ SoilGrids250m v2 ##########################################################################
 sgresgdb = os.path.join(resdir, 'soilgrids250.gdb')
-sgdict = getfilelist(sgresgdb, '.*_wmeanagg2$')
+sglist = getfilelist(sgresgdb, '.*_wmeanagg2$')
 
-for sg_valuegrid in sgdict:
-    hydroUplandWeighting(value_grid = sg_valuegrid,
+#Create custom weight and upland grids
+soilgrids_customweight = os.path.join(sgresgdb, 'Soilgrids_custompx_area_skm_15s')
+soilgrids_customupland = os.path.join(sgresgdb, 'Soilgrids_customup_area_skm_15s')
+
+if not arcpy.Exists(soilgrids_customweight):
+    print('Processing {}...'.format(soilgrids_customweight))
+    Times(weightras, (~IsNull(Raster(sglist[0])))).save(soilgrids_customweight) #Create pixel area raster for SoilGrids with pixel area where ~IsNull, and 0 otherwise
+
+if not arcpy.Exists(soilgrids_customupland):
+    print('Processing {}...'.format(soilgrids_customupland))
+    Plus(FlowAccumulation(directionras, Raster(soilgrids_customweight), "FLOAT"),
+         Raster(soilgrids_customweight)).save(soilgrids_customupland) # Flow accumulation of value grid and pixel area product
+
+#Run Upland weighting based on custom pixel and upland area grids
+for sg_valuegrid in sglist:
+    sg_nodata0 = '{}_nodata0'.format(os.path.splitext(sg_valuegrid)[0])
+    if not arcpy.Exists(sg_nodata0):
+        Con(IsNull(Raster(sg_valuegrid)), 0, Raster(sg_valuegrid)).save(sg_nodata0)
+
+    hydroUplandWeighting(value_grid=sg_nodata0,
+                         direction_grid=directionras,
+                         weight_grid=soilgrids_customweight,
+                         upland_grid=soilgrids_customupland,
+                         scratch_dir=os.path.join(resdir, 'scratch.gdb'),
+                         out_dir=sgresgdb)
+
+############################ GLAD surface water dynamics ###############################################################
+gladresgdb = os.path.join(resdir, 'glad.gdb')
+gladdict = {suffix : os.path.join(gladresgdb, 'class99_19_{}'.format(suffix)) for suffix in
+            ['datapix', 'freshperc', 'waterpix', 'permperc', 'seasonalperc',
+             'lossperc', 'dryperiodperc', 'wetperiodperc', 'hfreqperc']}
+
+#Create custom weight and upland grids
+gladfresh_customweight = os.path.join(gladresgdb, 'gladfresh_custompx_area_skm_15s')
+gladfresh_customupland = os.path.join(gladresgdb, 'gladfresh_customup_area_skm_15s')
+
+if not arcpy.Exists(gladfresh_customweight):
+    print('Processing {}...'.format(gladfresh_customweight))
+    Times(weightras, (Raster(gladdict['freshperc'])>0)).save(gladfresh_customweight) #Create pixel area raster for gladfresh with pixel area where ~IsNull, and 0 otherwise
+
+if not arcpy.Exists(gladfresh_customweight):
+    print('Processing {}...'.format(gladfresh_customweight))
+    Plus(FlowAccumulation(directionras, Raster(gladfresh_customweight), "FLOAT"),
+         Raster(gladfresh_customweight)).save(gladfresh_customupland) # Flow accumulation of value grid and pixel area product
+
+
+#Run Upland weighting based on custom pixel and upland area grids
+for glad_valuegrid in gladdict.values():
+    glad_nodata0 = '{}_nodata0'.format(os.path.splitext(glad_valuegrid)[0])
+    if not arcpy.Exists(glad_nodata0):
+        Con(IsNull(Raster(glad_valuegrid)), 0, Raster(glad_valuegrid)).save(glad_nodata0)
+
+    hydroUplandWeighting(value_grid = glad_nodata0,
                          direction_grid = directionras,
-                         weight_grid = weightras,
-                         upland_grid = uplandras,
+                         weight_grid = gladfresh_customweight,
+                         upland_grid = gladfresh_customupland,
                          scratch_dir = os.path.join(resdir, 'scratch.gdb'),
-                         out_dir = sgresgdb)
+                         out_dir = gladresgdb)

@@ -515,6 +515,6 @@ comp_dynaperc(in_dyna=outrspdict[6], in_freshpix=freshpix, out_ras=dryperiodperc
 comp_dynaperc(in_dyna=outrspdict[7], in_freshpix=freshpix, out_ras=wetperiodperc) #Wet period
 comp_dynaperc(in_dyna=outrspdict[8], in_freshpix=freshpix, out_ras=hfreqperc) #High frequency
 
-
+#Compute statistics within buffer around river based on width
 
 
