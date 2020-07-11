@@ -257,9 +257,12 @@ if __name__ == '__main__':
 
                 #calculate_zonal_stats(zoneLayer, value_raster, name, timestamp, stat="SUM")
                 arcpy.AddMessage("Starting | " + str(myList[x][0]) + " - " + str(myList[x][6]))
-                calculate_zonal_stats(rebase_path(myList[x][1], rootdir, arcpycheck=True),
-                                      rebase_path(myList[x][3], rootdir, arcpycheck=True),
-                                      myList[x][4], ts, myList[x][6])
+                if not arcpy.Exists(myList[x][4]):
+                    calculate_zonal_stats(rebase_path(myList[x][1], rootdir, arcpycheck=True),
+                                          rebase_path(myList[x][3], rootdir, arcpycheck=True),
+                                          myList[x][4], ts, myList[x][6])
+                else:
+                    print('{} table already exists...'.format(myList[x][4]))
 
                 ToJoinField = str(myList[x][9])#"GOID"  #LINK_BAS/SET JOIN FIELD
                 IntoJoinField = myList[x][4]#+ "_" + myList[x][6] #NEW FIELD NAME = COLUMN_NAME+STAT
