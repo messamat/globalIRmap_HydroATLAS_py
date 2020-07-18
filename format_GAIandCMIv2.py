@@ -4,6 +4,10 @@ from format_HydroSHEDS import *
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 
+scratchgdb = os.path.join(resdir, 'scratch.gdb')
+pathcheckcreate(scratchgdb)
+arcpy.env.scratchWorkspace = scratchgdb
+
 et0_outdir = os.path.join(datdir, 'GAIv2')
 et0resgdb = os.path.join(resdir, 'et0.gdb')
 pathcheckcreate(et0resgdb)
@@ -21,7 +25,7 @@ et0var.update(cmidict)
 et0_mismask = os.path.join(et0resgdb, 'et0hys_missmask')
 et0rsmp = {var:os.path.join(et0resgdb, '{}_resample'.format(var)) for var in et0var}
 et0template = et0rsmp['et0_01']
-et0nib = {var:os.path.join(et0resgdb, '{}_nibble2'.format(var)) for var in et0var}
+et0nib = {var:os.path.join(et0resgdb, '{}_nibble'.format(var)) for var in et0var}
 
 #Compute CMI
 #CMI = (P / PET) - 1 when P < PET] or [CMI = 1 - (PET / P) when P >= PET
