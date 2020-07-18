@@ -93,9 +93,80 @@ def calculate_zonal_stats(zoneLayer, value_raster, name, timestamp, stat="SUM"):
     except Exception as e:
         print e.args[0]
 
+def getValues():
+    # Fills the dictionaries with values
+    try:
+        flds = [FromJoinField, FromValueField]  # VALUE #STATISTIC_FIELD
+        with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
+            for myrow in cursor:
+                from_valueDict[myrow[0]] = myrow[1]
+        return
+
+    except Exception, e:
+        # If an error occurred, print line number and error message
+        import traceback, sys
+        tb = sys.exc_info()[2]
+        print "Line %i" % tb.tb_lineno
+        arcpy.AddMessage(str(e.message))
+
+def getValuesMax():
+    # Fills the dictionaries with values
+    try:
+        flds = [FromJoinField, 'MAX']  # VALUE #STATISTIC_FIELD
+        with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
+            for myrow in cursor:
+                from_valueDict[myrow[0]] = myrow[1]
+        return
+
+    except Exception, e:
+        # If an error occurred, print line number and error message
+        import traceback, sys
+        tb = sys.exc_info()[2]
+        print "Line %i" % tb.tb_lineno
+        print e.message
+
+def getValuesMin():
+    # Fills the dictionaries with values
+    try:
+        flds = [FromJoinField, 'MIN']  # VALUE #STATISTIC_FIELD
+        with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
+            for myrow in cursor:
+                from_valueDict[myrow[0]] = myrow[1]
+        return
+
+    except Exception, e:
+        # If an error occurred, print line number and error message
+        import traceback, sys
+        tb = sys.exc_info()[2]
+        print "Line %i" % tb.tb_lineno
+        print e.message
+
+def copyRaw(level, outputName):
+    arcpy.AddMessage("Copying " + r"" + shapefiles_location + "\link_hyriv_v1c")  # lev" + "%02d"%int(level)
+
+    try:
+        # Copies the raw copy of the shapefile to the output folder
+        # Grab the copy based on level
+        inlevel_format = r"" + shapefiles_location + "\link_hyriv_v1c"
+
+        if not arcpy.Exists(inlevel_format):
+            print('{} does not exists... try rebasing'.format(inlevel_format))
+            rebase_path(in_path=inlevel_format, in_rootdir=rootdir, arcpycheck=True)
+
+        arcpy.CopyFeatures_management(r"" + shapefiles_location + "\link_hyriv_v1c",
+                                      r"" + output_folder + "\output.gdb" + "\\" + str(outputName))
+
+    except Exception, e:
+        # If an error occurred, print line number and error message
+        import traceback, sys
+        tb = sys.exc_info()[2]
+        print "Line %i" % tb.tb_lineno
+        print e.message
+
 if __name__ == '__main__':
     from utility_functions import *
 
+    overwrite_zstats =True
     rootdir = "D:/PhD/HydroATLAS/data/Bernhard/HydroATLAS"
     shapefiles_location = os.path.join(rootdir, 'HydroATLAS_Geometry', 'Link_shapefiles', 'link_hyriv_v1c.gdb')
     workspaceFolder = os.path.join(rootdir, 'tempworkspace')
@@ -146,7 +217,7 @@ if __name__ == '__main__':
     #     mask_layer = myList[1][3] #set the mask as the first value grid
     #     if not arcpy.Exists(mask_layer):
     #         mask_layer = rebase_path(in_path=mask_layer, in_rootdir=rootdir, arcpycheck=True)
-    mask_layer = os.path.join("D:/PhD/HydroATLAS/data/Bernhard/HydroATLAS", "HydroATLAS_Geometry",
+    mask_layer = os.path.join(rootdir, "HydroATLAS_Geometry",
                               'Masks', 'hydrosheds_landmask_15s.gdb', 'hys_land_15s')
 
     set_environment(workspace, mask_layer)
@@ -154,78 +225,6 @@ if __name__ == '__main__':
     for x in range(1,len(myList)):
 
         if myList[x][11] == 'Y': #If the run layer switch is set as Yes (Y) then proceed
-
-            def getValues():
-                # Fills the dictionaries with values
-                try:
-                    flds = [FromJoinField, FromValueField] #VALUE #STATISTIC_FIELD
-                    with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
-                        for myrow in cursor:
-                            from_valueDict[myrow[0]] = myrow[1]
-                    return
-
-                except Exception, e:
-                    # If an error occurred, print line number and error message
-                    import traceback, sys
-                    tb = sys.exc_info()[2]
-                    print "Line %i" % tb.tb_lineno
-                    arcpy.AddMessage(str(e.message))
-
-            def getValuesMax():
-                # Fills the dictionaries with values
-                try:
-                    flds = [FromJoinField, 'MAX'] #VALUE #STATISTIC_FIELD
-                    with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
-                        for myrow in cursor:
-                            from_valueDict[myrow[0]] = myrow[1]
-                    return
-
-                except Exception, e:
-                    # If an error occurred, print line number and error message
-                    import traceback, sys
-                    tb = sys.exc_info()[2]
-                    print "Line %i" % tb.tb_lineno
-                    print e.message
-
-            def getValuesMin():
-                # Fills the dictionaries with values
-                try:
-                    flds = [FromJoinField, 'MIN'] #VALUE #STATISTIC_FIELD
-                    with arcpy.da.SearchCursor(FromJoinFC, flds) as cursor:
-                        for myrow in cursor:
-                            from_valueDict[myrow[0]] = myrow[1]
-                    return
-
-                except Exception, e:
-                    # If an error occurred, print line number and error message
-                    import traceback, sys
-                    tb = sys.exc_info()[2]
-                    print "Line %i" % tb.tb_lineno
-                    print e.message
-
-            def copyRaw(level,outputName):
-
-                arcpy.AddMessage("Copying " + r"" + shapefiles_location +"\link_hyriv_v1c") #lev" + "%02d"%int(level)
-
-                try:
-                    #Copies the raw copy of the shapefile to the output folder
-                    #Grab the copy based on level
-                    inlevel_format = r"" + shapefiles_location + "\link_hyriv_v1c"
-
-                    if not arcpy.Exists(inlevel_format):
-                        print('{} does not exists... try rebasing'.format(inlevel_format))
-                        rebase_path(in_path=inlevel_format, in_rootdir=rootdir, arcpycheck=True)
-
-                    arcpy.CopyFeatures_management(r"" + shapefiles_location +"\link_hyriv_v1c",
-                                                  r"" + output_folder + "\output.gdb" + "\\" + str(outputName))
-
-                except Exception, e:
-                    # If an error occurred, print line number and error message
-                    import traceback, sys
-                    tb = sys.exc_info()[2]
-                    print "Line %i" % tb.tb_lineno
-                    print e.message
-
             try:
 
                 start_time = time.time()
@@ -257,7 +256,7 @@ if __name__ == '__main__':
 
                 #calculate_zonal_stats(zoneLayer, value_raster, name, timestamp, stat="SUM")
                 arcpy.AddMessage("Starting | " + str(myList[x][0]) + " - " + str(myList[x][6]))
-                if not arcpy.Exists(myList[x][4]):
+                if not arcpy.Exists(myList[x][4]) or overwrite_zstats == True:
                     calculate_zonal_stats(rebase_path(myList[x][1], rootdir, arcpycheck=True),
                                           rebase_path(myList[x][3], rootdir, arcpycheck=True),
                                           myList[x][4], ts, myList[x][6])
@@ -359,3 +358,19 @@ if __name__ == '__main__':
                 arcpy.AddMessage(str(e.message))
 
     print "Completed in %d minutes" % ((time.clock() - start)/60)
+
+
+uoutputs = {x[10] for x in myList}
+if len(uoutputs) > 1:
+    print('HydroATLAS statistics have been written to more than one output')
+    print(uoutputs)
+else:
+    outfn = list(uoutputs)[0]
+    print('Exporting {}...'.format(outfn))
+    v11outgdb=os.path.join(rootdir, 'HydroATLAS_v10_final_data', 'RiverATLAS_v11.gdb')
+    v11outlyr=os.path.join(v11outgdb, outfn)
+    pathcheckcreate(v11outgdb)
+    arcpy.CopyFeatures_management(os.path.join(output_folder, 'output.gdb', outfn),
+                                  v11outlyr)
+
+
