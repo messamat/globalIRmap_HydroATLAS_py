@@ -46,7 +46,7 @@ def hydroUplandWeighting(value_grid, direction_grid, weight_grid, upland_grid, s
 
             # Divide by the accumulated pixel area grid
             print('Processing {}...'.format(out_grid))
-            UplandGrid = Divide(xpxarea_ac_fin, upland_grid)
+            UplandGrid = (Divide(xpxarea_ac_fin, upland_grid)-shiftval)
             UplandGrid.save(out_grid)
 
         except Exception, e:
@@ -81,20 +81,30 @@ for wc_valuegrid in worldclim_value:
 ############################ Global Aridity Index and CMI v2 ###########################################################
 et0_outdir = os.path.join(datdir, 'GAIv2')
 et0resgdb = os.path.join(resdir, 'et0.gdb')
-et0var = {os.path.splitext(os.path.split(lyr)[1])[0]:lyr for lyr in getfilelist(et0_outdir,'(ai_)*et0(_[0-9]{2})*[.]tif$')}
-cmidict = {"cmi_{}".format(str(mnth).zfill(2)): os.path.join(et0resgdb, 'cmi_{}'.format(str(mnth).zfill(2))) for mnth in xrange(1,13)}
-et0var.update(cmidict)
-et0nib = {var:os.path.join(et0resgdb, '{}_nibble2'.format(var)) for var in et0var}
 
-for etcmi_valuegrid in et0nib.values():
-    hydroUplandWeighting(value_grid=etcmi_valuegrid,
+cmidict = {"cmi_{}".format(str(mnth).zfill(2)): os.path.join(et0resgdb, 'cmi_{}'.format(str(mnth).zfill(2))) for mnth in xrange(1,13)}
+cminib = {var:os.path.join(et0resgdb, '{}_nibble'.format(var)) for var in cmidict}
+
+for cmi_valuegrid in cminib.values():
+    hydroUplandWeighting(value_grid=cmi_valuegrid,
+                         direction_grid=directionras,
+                         weight_grid=weightras,
+                         upland_grid=uplandras,
+                         scratch_dir=os.path.join(resdir, 'scratch.gdb'),
+                         out_dir=et0resgdb,
+                         shiftval=100)
+
+et0var = {os.path.splitext(os.path.split(lyr)[1])[0]:lyr for lyr in getfilelist(et0_outdir,'(ai_)*et0(_[0-9]{2})*[.]tif$')}
+et0nib = {var:os.path.join(et0resgdb, '{}_nibble'.format(var)) for var in et0var}
+
+for et0_valuegrid in et0nib.values():
+    hydroUplandWeighting(value_grid=et0_valuegrid,
                          direction_grid=directionras,
                          weight_grid=weightras,
                          upland_grid=uplandras,
                          scratch_dir=os.path.join(resdir, 'scratch.gdb'),
                          out_dir=et0resgdb,
                          shiftval=0)
-
 
 ############################ SoilGrids250m v2 ##########################################################################
 sgresgdb = os.path.join(resdir, 'soilgrids250.gdb')
