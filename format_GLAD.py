@@ -518,3 +518,6 @@ comp_dynaperc(in_dyna=outrspdict[8], in_freshpix=freshpix, out_ras=hfreqperc) #H
 #Compute statistics within buffer around river based on width
 
 
+#Create 1.5 minute buffer around sea areas
+coastalbuf3k = os.path.join(gladresgdb, 'class99_19_rsp9_buf3k')
+EucAllocation(in_source_data=outrspdict[9], maximum_distance=0.0041666667*6).save(coastalbuf3k)
