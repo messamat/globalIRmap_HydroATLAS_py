@@ -34,7 +34,7 @@ climvar = {re.search('(bio|prec)_[0-9]{1,2}', lyr).group():lyr for lyr in getfil
 wc_mismask = os.path.join(wcresgdb, 'wchys_missmask')
 wc_mismask_inspect = os.path.join(wcresgdb,'wchys_missmask_inspect')
 climrsmp = {var:os.path.join(wcresgdb, '{}_resample'.format(var)) for var in climvar}
-wctemplate = climrsmp['bio_12']
+wctemplate = climrsmp['bio_1']
 climnib = {var:os.path.join(wcresgdb, '{}_nibble'.format(var)) for var in climvar}
 
 ########################################## analysis ####################################################################
@@ -43,6 +43,11 @@ hydroresample(in_vardict=climvar, out_vardict=climrsmp, in_hydrotemplate=hydrote
 
 #Perform euclidean allocation for all pixels that are NoData in WorldClim layers but have data in HydroSHEDS land mask
 hydronibble(in_vardict=climrsmp, out_vardict=climnib, in_hydrotemplate=hydrotemplate, nodatavalue=-9999)
+
+########################################## correct glitch in bio6 ######################################################
+Con(IsNull(Raster(climnib['bio_6'])), 0, Raster(climnib['bio_6'])).save('{}2'.format(climnib['bio_6']))
+arcpy.Delete_management(climnib['bio_6'])
+arcpy.Rename_management(in_data='{}2'.format(climnib['bio_6']), out_data=climnib['bio_6'])
 
 #Inspect regions for which cell count hydroregions = wc_mismaskand > 10
 #Create a mismatch raster using hydrosheds land mask regions
