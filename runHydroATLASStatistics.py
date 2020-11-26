@@ -244,7 +244,7 @@ if __name__ == '__main__':
                     arcpy.AddMessage("Creating feature class...")
                     copyRaw(level=myList[x][2],outputName=myList[x][10])
 
-                if (FieldExist(ToJoinFC, myList[x][4])): #INTO FC, INTO FIELD
+                if (FieldExist(ToJoinFC, myList[x][4])) and (overwrite_zstats == False ): #INTO FC, INTO FIELD
                     arcpy.AddMessage("Field " +  str(myList[x][4]) + " already exists in " + str(myList[x][10]))
                     arcpy.AddMessage("")
                     continue
@@ -256,7 +256,7 @@ if __name__ == '__main__':
 
                 #calculate_zonal_stats(zoneLayer, value_raster, name, timestamp, stat="SUM")
                 arcpy.AddMessage("Starting | " + str(myList[x][0]) + " - " + str(myList[x][6]))
-                if not arcpy.Exists(myList[x][4]) or overwrite_zstats == True:
+                if (not arcpy.Exists(myList[x][4])) or (overwrite_zstats == True):
                     calculate_zonal_stats(rebase_path(myList[x][1], rootdir, arcpycheck=True),
                                           rebase_path(myList[x][3], rootdir, arcpycheck=True),
                                           myList[x][4], ts, myList[x][6])
@@ -360,7 +360,7 @@ if __name__ == '__main__':
     print "Completed in %d minutes" % ((time.clock() - start)/60)
 
 
-uoutputs = {x[10] for x in myList}
+uoutputs = {x[10] for x in myList[1:]}
 if len(uoutputs) > 1:
     print('HydroATLAS statistics have been written to more than one output')
     print(uoutputs)
