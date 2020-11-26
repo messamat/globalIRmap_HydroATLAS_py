@@ -7,6 +7,7 @@ pathcheckcreate(wp_resdir)
 wpraw = os.path.join(wp_outdir, 'ppp_2020_1km_Aggregated.tif')
 
 hydrolink = os.path.join(hydrogeomdir, 'Link_zone_grids', 'link_stream.gdb', 'link_str_arc')
+linkhyriv = os.path.join(hydrogeomdir, 'Link_shapefiles', 'link_hyriv_v10.gdb', 'link_hyriv_v10')
 wp_resmp = os.path.join(wp_resdir, 'wp_resample')
 hydrolinknib = os.path.join(wp_resdir, 'link_nibble')
 hydrolinkpop = os.path.join(wp_resdir, 'link_worldpop')
@@ -34,3 +35,11 @@ if not arcpy.Exists(hydrolinkpop):
                            out_table=hydrolinkpop,
                            ignore_nodata='DATA',
                            statistics_type='SUM')
+#Add HYRIV_ID to table
+linkhryiv_dict = {row[0]:row[1] for row in arcpy.da.SearchCursor(linkhyriv, ['LINK_RIV', 'HYRIV_ID'])}
+arcpy.AddField_management(hydrolinkpop, 'HYRIV_ID', 'LONG')
+with arcpy.da.UpdateCursor(hydrolinkpop, ['VALUE', 'HYRIV_ID']) as cursor:
+    for row in cursor:
+        if row[0] in linkhryiv_dict:
+            row[1] = linkhryiv_dict[row[0]]
+            cursor.updateRow(row)
