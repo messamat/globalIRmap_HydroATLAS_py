@@ -9,8 +9,6 @@ from utility_functions import *
 import numpy as np
 import cProfile
 
-
-############# COMPARE AGAINST SRTM WATER BODY DATASET OCEAN POLYGONS #####################################
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 arcpy.env.parallelProcessingFactor = "100%"
@@ -42,7 +40,7 @@ pathcheckcreate(mod44w_resgdb)
 #6: Dry period, 7: Wet period, 8: High frequency, 10: Probable land, 11: Probable water, 12: Sparse data - exclude
 
 ########################################################################################################################
-#Get list of tiiles for raw GLAD tiles, mod44w (MODIS sea mask) and ALOS (DEM)
+#Get list of tiles for raw GLAD tiles, mod44w (MODIS sea mask) and ALOS (DEM)
 print('Getting tile lists for GLAD, MODIS, and ALOS...')
 rawtilelist = getfilelist(glad_dir, 'class99_19.*[.]tif$')
 alos_tilelist = getfilelist(alos_dir, 'ALPSMLC30_[NS][0-9]{3}[WE][0-9]{3}_DSM.tif$')

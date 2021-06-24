@@ -136,6 +136,7 @@ if not arcpy.Exists(mod44w_QAmosaic):
 if not Raster(mod44w_QAmosaic).hasRAT:
     arcpy.BuildRasterAttributeTable_management(mod44w_QAmosaic)
 
+""" Not used in the end
 # ----------------------------------------- Resample EarthEnv DEM 90 based on MODIS ------------------------------------
 ee_outdir = os.path.join(datdir, 'earthenv')
 ee_resgdb = os.path.join(resdir, 'earthenv.gdb')
@@ -339,3 +340,4 @@ for cont in hydrodir_list:
 #https://desktop.arcgis.com/en/arcmap/10.7/tools/spatial-analyst-toolbox/an-overview-of-the-generalization-tools.htm
 #Think of using Nibble to fill-in NoData regions
 #Look at Region Group.
+"""
