@@ -10,8 +10,7 @@ ee_https = "https://www.earthenv.org/DEM.html" #Doesn't work, return 403 with ur
 ytileset = {'N{}'.format(str(x).zfill(2)) for x in xrange(0, 90, 5)} | \
            {'S{}'.format(str(x).zfill(2)) for x in xrange(0, 60, 5)}
 xtileset = {'W{}'.format(str(x).zfill(3)) for x in xrange(0, 185, 5)} | \
-           {'E{}'.format(str(x).zfill(3)) for x in x
-range(0, 185, 5)}
+           {'E{}'.format(str(x).zfill(3)) for x in xrange(0, 185, 5)}
 
 for x in xtileset:
     for y in ytileset:

@@ -14,6 +14,7 @@ coast_10pxband = os.path.join(hydroresgdb, 'coast_10pxband')
 hydroregions = os.path.join(hydroresgdb, 'hys_land_regions_15s')
 hydroregions_poly = os.path.join(hydroresgdb,'hys_land_regions_polysimple')
 
+
 if __name__ == '__main__':
     pathcheckcreate(hydroresdir)
     pathcheckcreate(hydroresgdb)
@@ -32,6 +33,8 @@ if __name__ == '__main__':
     # Convert regions to polygons
     if not arcpy.Exists(hydroregions_poly):
         arcpy.RasterToPolygon_conversion(hydroregions, hydroregions_poly, simplify='SIMPLIFY', raster_field='Value')
+
+    # Assign ID of nearest reach for every
 
 
 

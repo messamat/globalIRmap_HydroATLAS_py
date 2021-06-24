@@ -36,35 +36,43 @@ if not arcpy.Exists(sline):
 
 # ---------- Associate reaches with HydroBASIN level 06 ------
 sline_b05 = os.path.join(extend_resdir, 'streamseg_o1skm_b05')
-arcpy.SpatialJoin_analysis(target_features=sline, join_features=basinatlasl05,
-                           out_feature_class=sline_b05, join_operation="JOIN_ONE_TO_ONE",
-                           join_type = 'KEEP_ALL', match_option="HAVE_THEIR_CENTER_IN")
+if not arcpy.Exists(sline_b05):
+    arcpy.SpatialJoin_analysis(target_features=sline, join_features=basinatlasl05,
+                               out_feature_class=sline_b05, join_operation="JOIN_ONE_TO_ONE",
+                               join_type = 'KEEP_ALL', match_option="HAVE_THEIR_CENTER_IN")
 
 #Get length
-arcpy.AddGeometryAttributes_management(sline_b05, Geometry_Properties='LENGTH_GEODESIC', Length_Unit='kilometers')
+if ('LENGTH_GEO' not in [f.name for f in arcpy.ListFields(sline_b05)]):
+    arcpy.AddGeometryAttributes_management(sline_b05, Geometry_Properties='LENGTH_GEODESIC', Length_Unit='kilometers')
 
 # ---------- Flag reaches within lakes ------
-sline_lakeinters = os.path.join(extend_resdir, 'streamseg_hydrolakes_inters')
-if not arcpy.Exists(sline_lakeinters):
-    arcpy.Intersect_analysis(in_features = [sline_b05, hydrolakes], out_feature_class=sline_lakeinters,
-                             join_attributes= 'ONLY_FID')
-    arcpy.AddGeometryAttributes_management(sline_lakeinters, Geometry_Properties='LENGTH_GEODESIC', Length_Unit='kilometers')
+sline_lakejoin = os.path.join(extend_resdir, 'streamseg_hydrolakes_join')
+if not arcpy.Exists(sline_lakejoin):
+    arcpy.SpatialJoin_analysis(target_features=sline_b05, join_features=hydrolakes,
+                               out_feature_class=sline_lakejoin, join_operation="JOIN_ONE_TO_ONE",
+                               join_type = 'KEEP_ALL', match_option="COMPLETELY_WITHIN")
 
-if not 'INLAKEPERC' in [f.name for f in arcpy.ListFields(sline_b05)]:
-    arcpy.AddField_management(sline_b05, 'INLAKEPERC', field_type='float')
-    lendict = defaultdict(float)
-    with arcpy.da.SearchCursor(sline_lakeinters, ['HYRIV_ID', 'LENGTH_GEO']) as cursor:
+# ---------- Get reach discharge ------
+spourpoint = os.path.join(extend_resdir, 'ppourpoints_o1skm')
+if not arcpy.Exists(spourpoint):
+    arcpy.FeatureVerticesToPoints_management(sline_lakejoin, spourpoint, 'END')
+    ExtractMultiValuesToPoints(in_point_features=spourpoint, in_rasters=disras, bilinear_interpolate_values='NONE')
+
+if ('dis_m3_pyr' in [f.name for f in arcpy.ListFields(sline_b05)]):
+    arcpy.DeleteField_management(sline_lakejoin, 'dis_m3_pyr')
+    arcpy.AddField_management(sline_lakejoin, 'dis_m3_pyr', 'DOUBLE')
+    disdict = {row[0]:row[1] for row in arcpy.da.SearchCursor(spourpoint, ['arcid', 'dis_m3_pyr'])}
+
+    with arcpy.da.UpdateCursor(sline_lakejoin, ['arcid', 'dis_m3_pyr']) as cursor:
         for row in cursor:
-            lendict[row[0]] += row[1]
-    with arcpy.da.UpdateCursor(sline_b05, ['HYRIV_ID', 'LENGTH_KM','INLAKEPERC']) as cursor:
-        for row in cursor:
-            if row[0] in lendict:
-                row[2] = lendict[row[0]]/row[1]
-                cursor.updateRow(row)
+            row[1] = disdict[row[0]]
+            cursor.updateRow(row)
 
 # ---------- Export to CSV table ------
-sline_lakeinters = os.path.join(rootdir, 'results//streamseg_o1skm.csv')
-arcpy.CopyRows_management(sline_b05, sline_lakeinters)
+
+
+sline_tab = os.path.join(rootdir, 'results//streamseg_o1skm.csv')
+arcpy.CopyRows_management(sline_lakejoin, sline_tab)
 
 #Move to R
 #Compute average intermittency for smallest class

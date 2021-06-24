@@ -39,7 +39,6 @@ rootdir = os.path.dirname(os.path.abspath(__file__)).split('\\src')[0]
 datdir = os.path.join(rootdir, 'data')
 resdir = os.path.join(rootdir, 'results')
 
-
 # Resample a dictionary of rasters (in_vardict) to the resolution of a template raster (in_hydrotemplate), outputting
 # the resampled rasters to paths contained in another dictionary (out_vardict) by keys
 #See resample tool for resampling_type options (BILINEAR, CUBIC, NEAREST, MAJORITY)
